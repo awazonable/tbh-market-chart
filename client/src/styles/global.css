@@ -1,0 +1,31 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0f0f0f;
+  color: #ddd;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 13px;
+  min-height: 100vh;
+}
+
+:root {
+  --green: #13a361;
+  --red: #d23b3b;
+  --yellow: #c9a23b;
+  --bg-dark: #1a1a1a;
+  --bg-card: #1e1e1e;
+  --bg-grid: #141414;
+  --border: #2e2e2e;
+  --border-strong: #3a3a3a;
+  --text-dim: #666;
+  --text-mid: #999;
+  --text-bright: #ddd;
+}
+
+button { cursor: pointer; font-family: inherit; }
+input, button { font-family: inherit; font-size: inherit; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #1a1a1a; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }

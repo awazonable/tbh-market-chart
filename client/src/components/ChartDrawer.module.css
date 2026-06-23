@@ -1,0 +1,34 @@
+.drawer {
+  width: 340px; flex-shrink: 0;
+  border-left: 1.5px solid var(--border-strong);
+  background: #161616;
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 20px rgba(0,0,0,.4);
+  overflow: hidden;
+}
+.header { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 14px 8px; border-bottom: 1px solid var(--border); }
+.itemName { font-size: 15px; font-weight: 600; color: #e0e0e0; }
+.itemMeta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.close { background: none; border: none; color: #666; font-size: 16px; line-height: 1; padding: 0 2px; transition: color 0.1s; }
+.close:hover { color: #ccc; }
+.priceRow { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px 4px; }
+.currentPrice { font-size: 26px; font-weight: 600; line-height: 1; }
+.changeLabel { font-size: 12px; }
+.periodRow { display: flex; gap: 4px; padding: 6px 14px; align-items: center; }
+.periodBtn { background: none; border: 1px solid #3a3a3a; color: #888; padding: 2px 8px; font-size: 10px; border-radius: 2px; transition: all 0.1s; }
+.periodBtn:hover { border-color: #555; color: #bbb; }
+.periodActive { background: #222; border-color: #888; color: #fff; }
+.refreshBtn { margin-left: auto; background: none; border: 1px solid #3a3a3a; color: #777; padding: 2px 8px; font-size: 10px; border-radius: 2px; transition: all 0.1s; }
+.refreshBtn:hover { border-color: var(--green); color: var(--green); }
+.chartWrap { flex: 1; position: relative; min-height: 160px; }
+.chart { width: 100%; height: 100%; }
+.overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(22,22,22,.85); font-size: 11px; color: #888; z-index: 10; text-align: center; padding: 20px; line-height: 1.6; }
+.statsRow { display: flex; gap: 14px; padding: 6px 14px; font-size: 10px; color: #777; border-top: 1px solid var(--border); }
+.orderBook { border-top: 1px solid var(--border); font-size: 9px; }
+.bookHeader { display: flex; justify-content: space-between; padding: 3px 8px; background: #1a1a1a; color: #999; font-size: 9px; }
+.bookRow { display: flex; align-items: center; padding: 2px 8px; gap: 4px; }
+.bookPrice { width: 48px; flex-shrink: 0; }
+.bookBar { flex: 1; height: 8px; display: flex; align-items: center; }
+.bookQty { width: 28px; text-align: right; flex-shrink: 0; }
+.spreadRow { text-align: center; padding: 2px; background: #1e1a1e; color: #a066cc; font-size: 9px; border-top: 1px solid #2a2a2a; border-bottom: 1px solid #2a2a2a; }
+.bookLoading { padding: 8px; color: #555; font-size: 10px; text-align: center; line-height: 1.5; }

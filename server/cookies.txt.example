@@ -1,0 +1,10 @@
+# Paste your Steam cookie header string here (single line).
+# Example:
+# steamLoginSecure=76561198XXXXXXXXX%7C%7CXXXXXXXX...; sessionid=XXXXXXXX
+#
+# How to get it:
+# 1. Open https://steamcommunity.com/market/ in Chrome/Firefox while logged in
+# 2. Open DevTools -> Network -> reload the page
+# 3. Click any request to steamcommunity.com
+# 4. Under Request Headers, copy the entire "Cookie:" value
+# 5. Save as server/cookies.txt (not this .example file)
