@@ -12,6 +12,7 @@ const CACHE_TTL = 600; // 10 min
 
 const cache = new NodeCache({ stdTTL: CACHE_TTL });
 const imageCache = new NodeCache({ stdTTL: 86400 }); // 24h — icons don't change
+const nameIdCache = new NodeCache({ stdTTL: 0 }); // permanent — item_nameid never changes
 const requestQueue = [];
 let queueRunning = false;
 
@@ -56,14 +57,14 @@ function enqueue(fn) {
   });
 }
 
-async function steamGet(url, params) {
+async function steamGet(url, params, responseType = 'json') {
   const cookies = loadCookies();
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Referer': 'https://steamcommunity.com/market/',
   };
   if (cookies) headers['Cookie'] = cookies;
-  const res = await axios.get(url, { params, headers, timeout: 10000 });
+  const res = await axios.get(url, { params, headers, timeout: 10000, responseType });
   return res.data;
 }
 
@@ -110,6 +111,33 @@ app.get('/api/priceoverview', async (req, res) => {
     );
     cache.set(cacheKey, data);
     res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/item_nameid?market_hash_name=...
+// Fetches the Steam market listing page and extracts the item_nameid used for order book
+app.get('/api/item_nameid', async (req, res) => {
+  const { market_hash_name } = req.query;
+  if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
+
+  const key = `nameid:${market_hash_name}`;
+  const cached = nameIdCache.get(key);
+  if (cached !== undefined) return res.json({ item_nameid: cached });
+
+  try {
+    const html = await enqueue(() =>
+      steamGet(
+        `https://steamcommunity.com/market/listings/${APPID}/${encodeURIComponent(market_hash_name)}`,
+        {},
+        'text'
+      )
+    );
+    const m = String(html).match(/Market_LoadOrderSpread\(\s*(\d+)\s*\)/);
+    if (!m) return res.status(404).json({ error: 'item_nameid not found in page' });
+    nameIdCache.set(key, m[1]);
+    res.json({ item_nameid: m[1] });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }

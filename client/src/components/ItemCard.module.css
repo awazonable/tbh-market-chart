@@ -86,3 +86,14 @@
   color: var(--text-mid);
   margin-top: 3px;
 }
+
+.metaRight {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.lowestHint {
+  color: #555;
+  font-size: 8px;
+}

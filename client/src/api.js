@@ -43,6 +43,13 @@ export async function fetchOrderBook(item_nameid) {
   return r.json();
 }
 
+export async function fetchItemNameId(market_hash_name) {
+  const r = await fetch(`${BASE}/item_nameid?market_hash_name=${encodeURIComponent(market_hash_name)}`);
+  if (!r.ok) return null;
+  const d = await r.json();
+  return d.item_nameid || null;
+}
+
 export async function fetchItemImage(market_hash_name) {
   const r = await fetch(`${BASE}/itemimage?market_hash_name=${encodeURIComponent(market_hash_name)}`);
   if (!r.ok) return null;

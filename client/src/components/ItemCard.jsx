@@ -4,10 +4,13 @@ import { formatPrice } from '../api.js';
 import styles from './ItemCard.module.css';
 
 export function ItemCard({ item, selected, onClick, onRemove }) {
-  const { market_hash_name, price, prevPrice, sales, prevSales, status, imageUrl } = item;
+  const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl } = item;
 
-  const change = price != null && prevPrice != null ? price - prevPrice : null;
-  const changePct = change != null && prevPrice ? (change / prevPrice) * 100 : null;
+  // Use median (24h median = closer to "recent transaction") as primary display price
+  const displayPrice = median ?? price;
+  const displayPrevPrice = prevPrice; // prevPrice tracks previous median or lowest
+  const change = displayPrice != null && displayPrevPrice != null ? displayPrice - displayPrevPrice : null;
+  const changePct = change != null && displayPrevPrice ? (change / displayPrevPrice) * 100 : null;
   const up = change === null ? null : change >= 0;
   const color = status === 'pending' || status === 'loading' ? 'var(--yellow)'
     : up === null ? '#444'
@@ -45,16 +48,16 @@ export function ItemCard({ item, selected, onClick, onRemove }) {
       ) : (
         <>
           <div className={styles.price} style={{ color: priceColor }}>
-            {formatPrice(price)}
+            {formatPrice(displayPrice)}
           </div>
-          <Sparkline price={price} prevPrice={prevPrice} color={color} />
+          <Sparkline price={displayPrice} prevPrice={displayPrevPrice} color={color} />
           <div className={styles.meta}>
             <span style={{ color }}>
               {changePct != null ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%` : '—'}
             </span>
-            <span>
-              {sales != null ? `s.${formatNum(sales)}` : ''}
-              {salesDiff != null && salesDiff !== 0 ? ` ${salesDiff > 0 ? '+' : ''}${salesDiff}↑` : ''}
+            <span className={styles.metaRight}>
+              {price != null && median != null && <span className={styles.lowestHint}>最安{formatPrice(price)}</span>}
+              {sales != null ? ` s.${formatNum(sales)}` : ''}
             </span>
           </div>
         </>

@@ -17,7 +17,9 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
   const [historyError, setHistoryError] = useState(null);
 
   const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl } = item;
-  const change = price != null && prevPrice != null ? price - prevPrice : null;
+  // Show median as primary (recent market price); fall back to lowest if median unavailable
+  const displayPrice = median ?? price;
+  const change = displayPrice != null && prevPrice != null ? displayPrice - prevPrice : null;
   const changePct = change != null && prevPrice ? (change / prevPrice) * 100 : null;
   const up = change === null ? null : change >= 0;
   const priceColor = up === true ? 'var(--green)' : up === false ? 'var(--red)' : '#aaa';
@@ -43,10 +45,8 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     return () => { cancelled = true; };
   }, [market_hash_name]);
 
-  // Load order book (item_nameid unknown without extra request — use placeholder)
+  // Load order book — item_nameid is auto-fetched by useMarketData and stored in item
   useEffect(() => {
-    // item_nameid requires fetching the market listing page first.
-    // For now we show a placeholder; set item.item_nameid in watchlist.js once known.
     if (!item.item_nameid) { setOrderBook(null); return; }
     let cancelled = false;
     setLoadingBook(true);
@@ -132,13 +132,14 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
       {/* Price */}
       <div className={styles.priceRow}>
         <span className={styles.currentPrice} style={{ color: priceColor }}>
-          {formatPrice(price)}
+          {formatPrice(displayPrice)}
         </span>
         {change != null && (
           <span className={styles.changeLabel} style={{ color: priceColor }}>
             {change >= 0 ? '+' : ''}{formatPrice(change)} ({changePct >= 0 ? '+' : ''}{changePct?.toFixed(1)}%)
           </span>
         )}
+        <span className={styles.priceLabel}>中央値24h</span>
       </div>
 
       {/* Period tabs */}
@@ -171,8 +172,8 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
 
       {/* Stats */}
       <div className={styles.statsRow}>
-        <span>最安 {formatPrice(price)}</span>
-        <span>中央 {formatPrice(median)}</span>
+        <span>中央値 {formatPrice(median)}</span>
+        <span>最安値 {formatPrice(price)}</span>
         {price != null && median != null && (
           <span style={{ color: '#a066cc' }}>spread {formatPrice(median - price)}</span>
         )}
@@ -188,9 +189,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
           orderBook ? <OrderBookRows data={orderBook} /> :
           <div className={styles.bookLoading}>板情報なし</div>
         ) : (
-          <div className={styles.bookLoading}>
-            item_nameid 未設定 — watchlist.js に追加してください
-          </div>
+          <div className={styles.bookLoading}>板情報読み込み中...</div>
         )}
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchPriceOverview, fetchItemImage, parseSteamPrice } from '../api.js';
+import { fetchPriceOverview, fetchItemImage, fetchItemNameId, parseSteamPrice } from '../api.js';
 
 const ROTATION_INTERVAL = 10 * 60 * 1000; // 10 min full rotation
 
@@ -8,7 +8,7 @@ function calcDelay(total) {
 }
 
 function makeItem(w) {
-  return { ...w, status: 'pending', price: null, prevPrice: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null };
+  return { ...w, status: 'pending', price: null, prevPrice: null, median: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null, item_nameid: null };
 }
 
 export function useMarketData(watchlist) {
@@ -47,27 +47,35 @@ export function useMarketData(watchlist) {
       const price = parseSteamPrice(data.lowest_price);
       const sales = data.volume ? parseInt(data.volume.replace(/,/g, ''), 10) : null;
 
+      const newMedian = parseSteamPrice(data.median_price);
       setItems(prev => prev.map(it => {
         if (it.id !== id) return it;
+        // prevPrice tracks previous median (primary display price)
         return {
           ...it,
           status: 'ok',
-          prevPrice: it.price,
+          prevPrice: it.median ?? it.price,
           prevSales: it.sales,
           price,
-          median: parseSteamPrice(data.median_price),
+          median: newMedian,
           sales,
           updatedAt: Date.now(),
         };
       }));
 
-      // Fetch image lazily if not yet loaded
+      // Fetch image + item_nameid lazily if not yet loaded
       setItems(prev => {
         const current = prev.find(i => i.id === id);
-        if (current?.imageUrl) return prev;
-        fetchItemImage(w.market_hash_name).then(imageUrl => {
-          if (imageUrl) setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
-        });
+        if (!current?.imageUrl) {
+          fetchItemImage(w.market_hash_name).then(imageUrl => {
+            if (imageUrl) setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
+          });
+        }
+        if (!current?.item_nameid) {
+          fetchItemNameId(w.market_hash_name).then(item_nameid => {
+            if (item_nameid) setItems(p => p.map(i => i.id === id ? { ...i, item_nameid } : i));
+          });
+        }
         return prev;
       });
     } catch {
