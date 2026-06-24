@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { FilterBar } from './components/FilterBar.jsx';
 import { ItemCard } from './components/ItemCard.jsx';
 import { ChartDrawer } from './components/ChartDrawer.jsx';
+import { CookieModal } from './components/CookieModal.jsx';
 import { useMarketData } from './hooks/useMarketData.js';
 import { useWatchlist, parseMarketUrl } from './hooks/useWatchlist.js';
 import styles from './App.module.css';
@@ -14,6 +15,7 @@ export default function App() {
   const [sortBy, setSortBy] = useState('default');
   const [selectedId, setSelectedId] = useState(null);
   const [sparklinePeriod, setSparklinePeriod] = useState('1W');
+  const [cookieModalOpen, setCookieModalOpen] = useState(false);
   const [addMode, setAddMode] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [addError, setAddError] = useState('');
@@ -131,13 +133,19 @@ export default function App() {
             item={selectedItem}
             onClose={() => setSelectedId(null)}
             onForceUpdate={() => forceUpdate(selectedId)}
+            onCookieEdit={() => setCookieModalOpen(true)}
           />
         )}
       </div>
 
       <div className={styles.statusBar}>
-        … スクロールで残り表示 · {rotationEnabled ? '自動ローテ中' : '更新停止中'} · 非アクティブで停止
+        <span>… スクロールで残り表示 · {rotationEnabled ? '自動ローテ中' : '更新停止中'} · 非アクティブで停止</span>
+        <button className={styles.cookieBtn} onClick={() => setCookieModalOpen(true)} title="Steam Cookie 更新">
+          🍪 Cookie更新
+        </button>
       </div>
+
+      {cookieModalOpen && <CookieModal onClose={() => setCookieModalOpen(false)} />}
     </div>
   );
 }
