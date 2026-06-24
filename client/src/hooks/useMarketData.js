@@ -1,60 +1,117 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { WATCHLIST } from '../watchlist.js';
-import { fetchPriceOverview, parseSteamPrice } from '../api.js';
+import { fetchPriceOverview, fetchItemImage, parseSteamPrice } from '../api.js';
 
-const ROTATION_INTERVAL = 10 * 60 * 1000;
+const ROTATION_INTERVAL = 10 * 60 * 1000; // 10 min full rotation
 
 function calcDelay(total) {
-  return Math.floor(ROTATION_INTERVAL / total);
+  return Math.floor(ROTATION_INTERVAL / Math.max(total, 1));
 }
 
-export function useMarketData() {
-  const [items, setItems] = useState(() =>
-    WATCHLIST.map(w => ({ ...w, status: 'pending', price: null, prevPrice: null, sales: null, prevSales: null, updatedAt: null }))
-  );
+function makeItem(w) {
+  return { ...w, status: 'pending', price: null, prevPrice: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null };
+}
+
+export function useMarketData(watchlist) {
+  const [items, setItems] = useState(() => watchlist.map(makeItem));
   const [nextUpdateIn, setNextUpdateIn] = useState(0);
+  const [rotationEnabled, setRotationEnabled] = useState(true);
+
   const rotationRef = useRef(0);
+  const rotationEnabledRef = useRef(true);
   const timerRef = useRef(null);
   const countdownRef = useRef(null);
   const activeRef = useRef(true);
+  const watchlistRef = useRef(watchlist);
 
-  const updateItem = useCallback(async (index) => {
-    const w = WATCHLIST[index];
-    setItems(prev => prev.map((it, i) => i === index ? { ...it, status: 'loading' } : it));
+  // Keep ref in sync so tick() always sees current watchlist
+  useEffect(() => {
+    watchlistRef.current = watchlist;
+  }, [watchlist]);
+
+  // Sync items state when watchlist changes (add/remove)
+  useEffect(() => {
+    setItems(prev => {
+      const prevMap = new Map(prev.map(i => [i.id, i]));
+      return watchlist.map(w => prevMap.get(w.id) ?? makeItem(w));
+    });
+  }, [watchlist]);
+
+  const updateItem = useCallback(async (id) => {
+    const wl = watchlistRef.current;
+    const w = wl.find(i => i.id === id);
+    if (!w) return;
+
+    setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'loading' } : it));
     try {
       const data = await fetchPriceOverview(w.market_hash_name);
       const price = parseSteamPrice(data.lowest_price);
       const sales = data.volume ? parseInt(data.volume.replace(/,/g, ''), 10) : null;
-      setItems(prev => prev.map((it, i) => {
-        if (i !== index) return it;
-        return { ...it, status: 'ok', prevPrice: it.price, prevSales: it.sales, price, median: parseSteamPrice(data.median_price), sales, updatedAt: Date.now() };
+
+      setItems(prev => prev.map(it => {
+        if (it.id !== id) return it;
+        return {
+          ...it,
+          status: 'ok',
+          prevPrice: it.price,
+          prevSales: it.sales,
+          price,
+          median: parseSteamPrice(data.median_price),
+          sales,
+          updatedAt: Date.now(),
+        };
       }));
+
+      // Fetch image lazily if not yet loaded
+      setItems(prev => {
+        const current = prev.find(i => i.id === id);
+        if (current?.imageUrl) return prev;
+        fetchItemImage(w.market_hash_name).then(imageUrl => {
+          if (imageUrl) setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
+        });
+        return prev;
+      });
     } catch {
-      setItems(prev => prev.map((it, i) => i === index ? { ...it, status: 'error' } : it));
+      setItems(prev => prev.map(it => it.id === id ? { ...it, status: 'error' } : it));
     }
   }, []);
 
+  const toggleRotation = useCallback(() => {
+    const next = !rotationEnabledRef.current;
+    rotationEnabledRef.current = next;
+    setRotationEnabled(next);
+  }, []);
+
+  // Rotation loop
   useEffect(() => {
-    const delay = calcDelay(WATCHLIST.length);
+    const getDelay = () => calcDelay(watchlistRef.current.length);
 
     const tick = () => {
-      if (!activeRef.current) return;
-      const idx = rotationRef.current % WATCHLIST.length;
+      if (!activeRef.current || !rotationEnabledRef.current) return;
+      const wl = watchlistRef.current;
+      if (!wl.length) return;
+      const id = wl[rotationRef.current % wl.length].id;
       rotationRef.current += 1;
-      updateItem(idx);
+      updateItem(id);
+      const delay = getDelay();
       setNextUpdateIn(delay);
       timerRef.current = setTimeout(tick, delay);
     };
 
-    WATCHLIST.forEach((_, i) => setTimeout(() => updateItem(i), i * 1200));
-    const firstDelay = WATCHLIST.length * 1200 + 2000;
+    // Initial load — staggered
+    watchlist.forEach((w, i) => {
+      setTimeout(() => updateItem(w.id), i * 1200);
+    });
+
+    const firstDelay = watchlist.length * 1200 + 2000;
     timerRef.current = setTimeout(tick, firstDelay);
     setNextUpdateIn(firstDelay);
 
     let remaining = firstDelay;
     countdownRef.current = setInterval(() => {
-      remaining = Math.max(0, remaining - 1000);
-      setNextUpdateIn(remaining);
+      if (rotationEnabledRef.current) {
+        remaining = Math.max(0, remaining - 1000);
+        setNextUpdateIn(remaining);
+      }
     }, 1000);
 
     const onVisibility = () => { activeRef.current = !document.hidden; };
@@ -65,9 +122,11 @@ export function useMarketData() {
       clearInterval(countdownRef.current);
       document.removeEventListener('visibilitychange', onVisibility);
     };
+  }, []); // eslint-disable-line
+
+  const forceUpdate = useCallback((id) => {
+    updateItem(id);
   }, [updateItem]);
 
-  const forceUpdate = useCallback((index) => { updateItem(index); }, [updateItem]);
-
-  return { items, nextUpdateIn, forceUpdate };
+  return { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation };
 }

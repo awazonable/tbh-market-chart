@@ -11,16 +11,19 @@ const APPID = 3678970;
 const CACHE_TTL = 600; // 10 min
 
 const cache = new NodeCache({ stdTTL: CACHE_TTL });
+const imageCache = new NodeCache({ stdTTL: 86400 }); // 24h — icons don't change
 const requestQueue = [];
 let queueRunning = false;
 
 app.use(cors());
 app.use(express.json());
 
+// Load cookies from cookies.txt (Netscape format or raw header string)
 function loadCookies() {
   const cookiePath = path.join(__dirname, 'cookies.txt');
   if (!fs.existsSync(cookiePath)) return '';
   const raw = fs.readFileSync(cookiePath, 'utf8').trim();
+  // If it looks like a raw cookie header string, use as-is
   if (raw.startsWith('steamLoginSecure') || raw.includes('=')) return raw;
   return raw;
 }
@@ -64,16 +67,21 @@ async function steamGet(url, params) {
   return res.data;
 }
 
+// GET /api/pricehistory?market_hash_name=...
 app.get('/api/pricehistory', async (req, res) => {
   const { market_hash_name } = req.query;
   if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
+
   const cacheKey = `pricehistory:${market_hash_name}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ ...cached, _cached: true });
+
   try {
     const data = await enqueue(() =>
       steamGet('https://steamcommunity.com/market/pricehistory/', {
-        appid: APPID, market_hash_name, currency: 1,
+        appid: APPID,
+        market_hash_name,
+        currency: req.query.currency || 1,
       })
     );
     cache.set(cacheKey, data);
@@ -83,16 +91,21 @@ app.get('/api/pricehistory', async (req, res) => {
   }
 });
 
+// GET /api/priceoverview?market_hash_name=...&currency=...
 app.get('/api/priceoverview', async (req, res) => {
-  const { market_hash_name } = req.query;
+  const { market_hash_name, currency = '1' } = req.query;
   if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
-  const cacheKey = `priceoverview:${market_hash_name}`;
+
+  const cacheKey = `priceoverview:${market_hash_name}:${currency}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ ...cached, _cached: true });
+
   try {
     const data = await enqueue(() =>
       steamGet('https://steamcommunity.com/market/priceoverview/', {
-        appid: APPID, market_hash_name, currency: 1,
+        appid: APPID,
+        market_hash_name,
+        currency,
       })
     );
     cache.set(cacheKey, data);
@@ -102,16 +115,50 @@ app.get('/api/priceoverview', async (req, res) => {
   }
 });
 
+// GET /api/itemimage?market_hash_name=...
+app.get('/api/itemimage', async (req, res) => {
+  const { market_hash_name } = req.query;
+  if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
+
+  const key = `img:${market_hash_name}`;
+  const cached = imageCache.get(key);
+  if (cached !== undefined) return res.json(cached);
+
+  try {
+    const data = await steamGet('https://steamcommunity.com/market/search/render/', {
+      appid: APPID,
+      query: market_hash_name,
+      count: 1,
+      search_descriptions: 0,
+      format: 'json',
+    });
+    const icon = data?.results?.[0]?.asset_description?.icon_url ?? null;
+    const result = icon
+      ? { icon_url: `https://community.akamai.steamstatic.com/economy/image/${icon}/64fx64f` }
+      : { icon_url: null };
+    imageCache.set(key, result);
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/orderbook?item_nameid=...
 app.get('/api/orderbook', async (req, res) => {
   const { item_nameid } = req.query;
   if (!item_nameid) return res.status(400).json({ error: 'item_nameid required' });
+
   const cacheKey = `orderbook:${item_nameid}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ ...cached, _cached: true });
+
   try {
     const data = await enqueue(() =>
       steamGet('https://steamcommunity.com/market/itemordershistogram/', {
-        item_nameid, language: 'english', currency: 1, two_factor: 0,
+        item_nameid,
+        language: 'english',
+        currency: 1,
+        two_factor: 0,
       })
     );
     cache.set(cacheKey, data);
@@ -121,11 +168,14 @@ app.get('/api/orderbook', async (req, res) => {
   }
 });
 
+// GET /api/cache/status — show cache keys and TTLs
 app.get('/api/cache/status', (_req, res) => {
   const keys = cache.keys();
-  res.json({ count: keys.length, queue: requestQueue.length, items: keys.map(k => ({ key: k, ttl: cache.getTtl(k) })) });
+  const status = keys.map(k => ({ key: k, ttl: cache.getTtl(k) }));
+  res.json({ count: keys.length, queue: requestQueue.length, items: status });
 });
 
+// DELETE /api/cache/:key — force invalidate
 app.delete('/api/cache/:key', (req, res) => {
   cache.del(decodeURIComponent(req.params.key));
   res.json({ ok: true });

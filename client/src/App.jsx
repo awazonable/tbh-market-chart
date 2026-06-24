@@ -3,76 +3,136 @@ import { FilterBar } from './components/FilterBar.jsx';
 import { ItemCard } from './components/ItemCard.jsx';
 import { ChartDrawer } from './components/ChartDrawer.jsx';
 import { useMarketData } from './hooks/useMarketData.js';
-import { WATCHLIST } from './watchlist.js';
+import { useWatchlist, parseMarketUrl } from './hooks/useWatchlist.js';
 import styles from './App.module.css';
 
 export default function App() {
-  const { items, nextUpdateIn, forceUpdate } = useMarketData();
+  const { list: watchlist, addItem, removeItem } = useWatchlist();
+  const { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation } = useMarketData(watchlist);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('default');
   const [selectedId, setSelectedId] = useState(null);
+  const [addMode, setAddMode] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [addError, setAddError] = useState('');
 
   const selectedItem = selectedId != null ? items.find(it => it.id === selectedId) : null;
 
   const visibleItems = useMemo(() => {
     let list = items;
-    if (filter !== 'all') list = list.filter(it => it.category === filter);
+
+    if (filter !== 'all') {
+      list = list.filter(it => it.category === filter);
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(it => it.market_hash_name.toLowerCase().includes(q));
     }
+
     list = [...list].sort((a, b) => {
       switch (sortBy) {
-        case 'price_asc':   return (a.price ?? Infinity) - (b.price ?? Infinity);
-        case 'price_desc':  return (b.price ?? -Infinity) - (a.price ?? -Infinity);
-        case 'change_asc':  return (pctChange(a) ?? -Infinity) - (pctChange(b) ?? -Infinity);
-        case 'change_desc': return (pctChange(b) ?? -Infinity) - (pctChange(a) ?? -Infinity);
-        case 'name':        return a.market_hash_name.localeCompare(b.market_hash_name);
-        default:            return 0;
+        case 'price_asc': return (a.price ?? Infinity) - (b.price ?? Infinity);
+        case 'price_desc': return (b.price ?? -Infinity) - (a.price ?? -Infinity);
+        case 'change_asc': {
+          const ca = pctChange(a), cb = pctChange(b);
+          return (ca ?? -Infinity) - (cb ?? -Infinity);
+        }
+        case 'change_desc': {
+          const ca = pctChange(a), cb = pctChange(b);
+          return (cb ?? -Infinity) - (ca ?? -Infinity);
+        }
+        case 'name': return a.market_hash_name.localeCompare(b.market_hash_name);
+        default: return 0;
       }
     });
+
     return list;
   }, [items, filter, search, sortBy]);
 
   const drawerOpen = selectedItem != null;
 
+  const handleAddUrl = () => {
+    const parsed = parseMarketUrl(urlInput);
+    if (!parsed) { setAddError('URLの形式が正しくありません'); return; }
+    const ok = addItem(parsed);
+    if (!ok) { setAddError('すでに登録済みです'); return; }
+    setUrlInput('');
+    setAddMode(false);
+    setAddError('');
+  };
+
+  const handleAddKeyDown = (e) => {
+    if (e.key === 'Enter') handleAddUrl();
+    if (e.key === 'Escape') { setAddMode(false); setUrlInput(''); setAddError(''); }
+  };
+
   return (
     <div className={styles.app}>
       <FilterBar
         items={items}
-        filter={filter} setFilter={setFilter}
-        search={search} setSearch={setSearch}
-        sortBy={sortBy} setSortBy={setSortBy}
+        filter={filter}
+        setFilter={setFilter}
+        search={search}
+        setSearch={setSearch}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
         nextUpdateIn={nextUpdateIn}
+        rotationEnabled={rotationEnabled}
+        onToggleRotation={toggleRotation}
       />
+
       <div className={`${styles.body} ${drawerOpen ? styles.withDrawer : ''}`}>
-        <div className={`${styles.grid} ${drawerOpen ? styles.gridDimmed : ''}`}>
-          {visibleItems.map(item => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              selected={item.id === selectedId}
-              onClick={() => setSelectedId(prev => prev === item.id ? null : item.id)}
-            />
-          ))}
-          <div className={styles.addCard} onClick={() => alert('watchlist.js を編集してアイテムを追加してください')}>
-            + 追加
+        <div className={`${styles.gridWrap} ${drawerOpen ? styles.gridDimmed : ''}`}>
+          {addMode && (
+            <div className={styles.addPanel}>
+              <input
+                className={styles.addInput}
+                placeholder="Steam Market URL を貼り付け..."
+                value={urlInput}
+                onChange={e => { setUrlInput(e.target.value); setAddError(''); }}
+                onKeyDown={handleAddKeyDown}
+                autoFocus
+              />
+              <button className={styles.addBtn} onClick={handleAddUrl}>追加</button>
+              <button className={styles.cancelBtn} onClick={() => { setAddMode(false); setUrlInput(''); setAddError(''); }}>✕</button>
+              {addError && <span className={styles.addError}>{addError}</span>}
+            </div>
+          )}
+          <div className={styles.grid}>
+            {visibleItems.map(item => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                selected={item.id === selectedId}
+                onClick={() => setSelectedId(prev => prev === item.id ? null : item.id)}
+                onRemove={() => {
+                  removeItem(item.id);
+                  if (selectedId === item.id) setSelectedId(null);
+                }}
+              />
+            ))}
+            <div
+              className={styles.addCard}
+              onClick={() => setAddMode(m => !m)}
+            >
+              + 追加
+            </div>
           </div>
         </div>
+
         {drawerOpen && (
           <ChartDrawer
             item={selectedItem}
             onClose={() => setSelectedId(null)}
-            onForceUpdate={() => {
-              const idx = WATCHLIST.findIndex(w => w.id === selectedId);
-              if (idx >= 0) forceUpdate(idx);
-            }}
+            onForceUpdate={() => forceUpdate(selectedId)}
           />
         )}
       </div>
+
       <div className={styles.statusBar}>
-        … スクロールで残り表示 · 自動ローテ中 · 非アクティブで停止
+        … スクロールで残り表示 · {rotationEnabled ? '自動ローテ中' : '更新停止中'} · 非アクティブで停止
       </div>
     </div>
   );

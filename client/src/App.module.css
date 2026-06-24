@@ -1,6 +1,28 @@
-.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
 
-.body { display: flex; flex: 1; overflow: hidden; }
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.gridWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-grid);
+  transition: filter 0.2s;
+}
+
+.gridDimmed {
+  filter: brightness(0.75);
+}
 
 .grid {
   flex: 1;
@@ -8,18 +30,73 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   padding: 10px;
-  background: var(--bg-grid);
   overflow-y: auto;
   align-content: start;
-  transition: filter 0.2s;
 }
 
-@media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
 
-.withDrawer .grid { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 640px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
 
-.gridDimmed { filter: brightness(0.75); }
+.withDrawer .grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.addPanel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.addInput {
+  flex: 1;
+  background: #252525;
+  border: 1px solid #3a3a3a;
+  color: #bbb;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.addInput:focus {
+  border-color: var(--green);
+}
+
+.addBtn {
+  background: var(--green);
+  border: none;
+  color: #fff;
+  padding: 4px 12px;
+  font-size: 11px;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cancelBtn {
+  background: none;
+  border: 1px solid #444;
+  color: #666;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.addError {
+  font-size: 10px;
+  color: var(--red);
+  white-space: nowrap;
+}
 
 .addCard {
   background: var(--bg-card);
@@ -35,7 +112,11 @@
   min-height: 80px;
   transition: border-color 0.15s, color 0.15s;
 }
-.addCard:hover { border-color: #555; color: #888; }
+
+.addCard:hover {
+  border-color: #555;
+  color: #888;
+}
 
 .statusBar {
   height: 22px;
