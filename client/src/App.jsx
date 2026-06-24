@@ -13,6 +13,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('default');
   const [selectedId, setSelectedId] = useState(null);
+  const [sparklinePeriod, setSparklinePeriod] = useState('1W');
   const [addMode, setAddMode] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [addError, setAddError] = useState('');
@@ -33,8 +34,8 @@ export default function App() {
 
     list = [...list].sort((a, b) => {
       switch (sortBy) {
-        case 'price_asc': return (a.price ?? Infinity) - (b.price ?? Infinity);
-        case 'price_desc': return (b.price ?? -Infinity) - (a.price ?? -Infinity);
+        case 'price_asc': return (computeDisplayPrice(a) ?? Infinity) - (computeDisplayPrice(b) ?? Infinity);
+        case 'price_desc': return (computeDisplayPrice(b) ?? -Infinity) - (computeDisplayPrice(a) ?? -Infinity);
         case 'change_asc': {
           const ca = pctChange(a), cb = pctChange(b);
           return (ca ?? -Infinity) - (cb ?? -Infinity);
@@ -81,6 +82,8 @@ export default function App() {
         nextUpdateIn={nextUpdateIn}
         rotationEnabled={rotationEnabled}
         onToggleRotation={toggleRotation}
+        sparklinePeriod={sparklinePeriod}
+        setSparklinePeriod={setSparklinePeriod}
       />
 
       <div className={`${styles.body} ${drawerOpen ? styles.withDrawer : ''}`}>
@@ -111,6 +114,7 @@ export default function App() {
                   removeItem(item.id);
                   if (selectedId === item.id) setSelectedId(null);
                 }}
+                period={sparklinePeriod}
               />
             ))}
             <div
@@ -138,7 +142,16 @@ export default function App() {
   );
 }
 
+function computeDisplayPrice(item) {
+  const { highestBid, recentPrice, median, price } = item;
+  if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
+  if (recentPrice != null) return recentPrice;
+  if (highestBid != null) return highestBid;
+  return median ?? price;
+}
+
 function pctChange(item) {
-  if (item.price == null || item.prevPrice == null) return null;
-  return (item.price - item.prevPrice) / item.prevPrice * 100;
+  const cur = computeDisplayPrice(item);
+  if (cur == null || item.prevPrice == null) return null;
+  return (cur - item.prevPrice) / item.prevPrice * 100;
 }

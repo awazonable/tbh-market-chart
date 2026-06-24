@@ -171,12 +171,12 @@ app.get('/api/itemimage', async (req, res) => {
   }
 });
 
-// GET /api/orderbook?item_nameid=...
+// GET /api/orderbook?item_nameid=...&currency=...
 app.get('/api/orderbook', async (req, res) => {
-  const { item_nameid } = req.query;
+  const { item_nameid, currency = '8' } = req.query;
   if (!item_nameid) return res.status(400).json({ error: 'item_nameid required' });
 
-  const cacheKey = `orderbook:${item_nameid}`;
+  const cacheKey = `orderbook:${item_nameid}:${currency}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ ...cached, _cached: true });
 
@@ -185,7 +185,7 @@ app.get('/api/orderbook', async (req, res) => {
       steamGet('https://steamcommunity.com/market/itemordershistogram/', {
         item_nameid,
         language: 'english',
-        currency: 1,
+        currency,
         two_factor: 0,
       })
     );

@@ -16,9 +16,14 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
   const [loadingBook, setLoadingBook] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
-  const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl } = item;
-  // Show median as primary (recent market price); fall back to lowest if median unavailable
-  const displayPrice = median ?? price;
+  const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl, highestBid, recentPrice } = item;
+  // Primary: average of highest buy order and most recent transaction
+  const displayPrice = (() => {
+    if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
+    if (recentPrice != null) return recentPrice;
+    if (highestBid != null) return highestBid;
+    return median ?? price;
+  })();
   const change = displayPrice != null && prevPrice != null ? displayPrice - prevPrice : null;
   const changePct = change != null && prevPrice ? (change / prevPrice) * 100 : null;
   const up = change === null ? null : change >= 0;
@@ -45,7 +50,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     return () => { cancelled = true; };
   }, [market_hash_name]);
 
-  // Load order book — item_nameid is auto-fetched by useMarketData and stored in item
+  // Load order book
   useEffect(() => {
     if (!item.item_nameid) { setOrderBook(null); return; }
     let cancelled = false;
@@ -104,7 +109,6 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
 
   const handleForceUpdate = useCallback(() => {
     onForceUpdate();
-    // Also reload chart data
     setLoadingHistory(true);
     fetchPriceHistory(market_hash_name)
       .then(data => { setHistory(parseHistoryToSeries(data.prices)); })
@@ -120,7 +124,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
           {imageUrl && <img src={imageUrl} className={styles.itemIcon} alt="" />}
           <div>
             <div className={styles.itemName}>{market_hash_name}</div>
-            <div className={styles.itemMeta}>
+          <div className={styles.itemMeta}>
               {item.category === 'material' ? '素材' : '装備'}
               {sales != null && <> · sales {sales.toLocaleString()}{salesDiff != null ? ` (+${salesDiff} vs cache)` : ''}</>}
             </div>
@@ -139,7 +143,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
             {change >= 0 ? '+' : ''}{formatPrice(change)} ({changePct >= 0 ? '+' : ''}{changePct?.toFixed(1)}%)
           </span>
         )}
-        <span className={styles.priceLabel}>中央値24h</span>
+        <span className={styles.priceLabel}>{highestBid != null && recentPrice != null ? '買注文↑直近平均' : '中央値24h'}</span>
       </div>
 
       {/* Period tabs */}
@@ -189,7 +193,9 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
           orderBook ? <OrderBookRows data={orderBook} /> :
           <div className={styles.bookLoading}>板情報なし</div>
         ) : (
-          <div className={styles.bookLoading}>板情報読み込み中...</div>
+          <div className={styles.bookLoading}>
+            item_nameid 取得中...
+          </div>
         )}
       </div>
     </div>

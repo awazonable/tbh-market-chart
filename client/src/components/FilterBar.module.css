@@ -41,6 +41,30 @@
   color: #fff;
 }
 
+.periodChips {
+  display: flex;
+  gap: 3px;
+}
+
+.periodChip {
+  background: transparent;
+  border: 1px solid #3a3a3a;
+  color: #777;
+  padding: 2px 7px;
+  font-size: 10px;
+  border-radius: 2px;
+  transition: all 0.1s;
+  cursor: pointer;
+}
+
+.periodChip:hover { border-color: #555; color: #bbb; }
+
+.periodChipActive {
+  background: #222;
+  border-color: #888;
+  color: #fff;
+}
+
 .searchRow {
   display: flex;
   gap: 4px;

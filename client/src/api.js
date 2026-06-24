@@ -38,7 +38,8 @@ export async function fetchPriceHistory(market_hash_name) {
 }
 
 export async function fetchOrderBook(item_nameid) {
-  const r = await fetch(`${BASE}/orderbook?item_nameid=${encodeURIComponent(item_nameid)}`);
+  const currency = getCurrencyCode();
+  const r = await fetch(`${BASE}/orderbook?item_nameid=${encodeURIComponent(item_nameid)}&currency=${currency}`);
   if (!r.ok) throw new Error(`orderbook ${r.status}`);
   return r.json();
 }

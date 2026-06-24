@@ -3,21 +3,38 @@ import { Sparkline } from './Sparkline.jsx';
 import { formatPrice } from '../api.js';
 import styles from './ItemCard.module.css';
 
-export function ItemCard({ item, selected, onClick, onRemove }) {
-  const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl } = item;
+function filterByPeriod(history, period) {
+  if (!history || !history.length) return [];
+  const now = history[history.length - 1].time;
+  const cutoff = period === '1D' ? now - 86400
+    : period === '1W' ? now - 86400 * 7
+    : now - 86400 * 30;
+  return history.filter(d => d.time >= cutoff);
+}
 
-  // Use median (24h median = closer to "recent transaction") as primary display price
-  const displayPrice = median ?? price;
-  const displayPrevPrice = prevPrice; // prevPrice tracks previous median or lowest
-  const change = displayPrice != null && displayPrevPrice != null ? displayPrice - displayPrevPrice : null;
-  const changePct = change != null && displayPrevPrice ? (change / displayPrevPrice) * 100 : null;
-  const up = change === null ? null : change >= 0;
+export function ItemCard({ item, selected, onClick, onRemove, period = '1W' }) {
+  const { market_hash_name, price, median, sales, status, imageUrl, highestBid, recentPrice, history } = item;
+
+  // Primary display: average of highest buy order and most recent transaction
+  const computedPrice = (() => {
+    if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
+    if (recentPrice != null) return recentPrice;
+    if (highestBid != null) return highestBid;
+    return median ?? price;
+  })();
+
+  // Change % from start → end of selected period using real history
+  const filtered = filterByPeriod(history, period);
+  const startVal = filtered.length > 1 ? filtered[0].value : null;
+  const changePct = startVal != null && computedPrice != null
+    ? (computedPrice - startVal) / startVal * 100
+    : null;
+  const up = changePct === null ? null : changePct >= 0;
+
   const color = status === 'pending' || status === 'loading' ? 'var(--yellow)'
     : up === null ? '#444'
     : up ? 'var(--green)' : 'var(--red)';
   const priceColor = up === true ? 'var(--green)' : up === false ? 'var(--red)' : 'var(--yellow)';
-
-  const salesDiff = sales != null && prevSales != null ? sales - prevSales : null;
 
   const isPending = status === 'pending' || (status === 'loading' && price == null);
 
@@ -42,21 +59,21 @@ export function ItemCard({ item, selected, onClick, onRemove }) {
       {isPending ? (
         <>
           <div className={styles.loadingPrice}>⟳ 更新待ち</div>
-          <Sparkline price={null} prevPrice={null} color="#444" />
+          <Sparkline history={null} period={period} color="#444" />
           <div className={styles.meta}><span>— cache無し</span></div>
         </>
       ) : (
         <>
           <div className={styles.price} style={{ color: priceColor }}>
-            {formatPrice(displayPrice)}
+            {formatPrice(computedPrice)}
           </div>
-          <Sparkline price={displayPrice} prevPrice={displayPrevPrice} color={color} />
+          <Sparkline history={history} period={period} color={color} />
           <div className={styles.meta}>
             <span style={{ color }}>
               {changePct != null ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%` : '—'}
             </span>
             <span className={styles.metaRight}>
-              {price != null && median != null && <span className={styles.lowestHint}>最安{formatPrice(price)}</span>}
+              {price != null && <span className={styles.lowestHint}>最安{formatPrice(price)}</span>}
               {sales != null ? ` s.${formatNum(sales)}` : ''}
             </span>
           </div>

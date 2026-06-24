@@ -1,7 +1,7 @@
 import React from 'react';
 import styles from './FilterBar.module.css';
 
-export function FilterBar({ items, filter, setFilter, search, setSearch, sortBy, setSortBy, nextUpdateIn, rotationEnabled, onToggleRotation }) {
+export function FilterBar({ items, filter, setFilter, search, setSearch, sortBy, setSortBy, nextUpdateIn, rotationEnabled, onToggleRotation, sparklinePeriod, setSparklinePeriod }) {
   const total = items.length;
   const materials = items.filter(i => i.category === 'material').length;
   const equipment = items.filter(i => i.category === 'equipment').length;
@@ -26,6 +26,18 @@ export function FilterBar({ items, filter, setFilter, search, setSearch, sortBy,
             onClick={() => setFilter(key)}
           >
             {label}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.periodChips}>
+        {['1D', '1W', '1M'].map(p => (
+          <button
+            key={p}
+            className={`${styles.periodChip} ${sparklinePeriod === p ? styles.periodChipActive : ''}`}
+            onClick={() => setSparklinePeriod(p)}
+          >
+            {p}
           </button>
         ))}
       </div>

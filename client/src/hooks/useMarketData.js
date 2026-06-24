@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchPriceOverview, fetchItemImage, fetchItemNameId, parseSteamPrice } from '../api.js';
+import { fetchPriceOverview, fetchPriceHistory, fetchOrderBook, fetchItemImage, fetchItemNameId, parseSteamPrice, parseHistoryToSeries } from '../api.js';
 
 const ROTATION_INTERVAL = 10 * 60 * 1000; // 10 min full rotation
 
@@ -8,7 +8,7 @@ function calcDelay(total) {
 }
 
 function makeItem(w) {
-  return { ...w, status: 'pending', price: null, prevPrice: null, median: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null, item_nameid: null };
+  return { ...w, status: 'pending', price: null, prevPrice: null, median: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null, item_nameid: null, history: null, recentPrice: null, highestBid: null };
 }
 
 export function useMarketData(watchlist) {
@@ -22,13 +22,12 @@ export function useMarketData(watchlist) {
   const countdownRef = useRef(null);
   const activeRef = useRef(true);
   const watchlistRef = useRef(watchlist);
+  const nextUpdateAtRef = useRef(0);
 
-  // Keep ref in sync so tick() always sees current watchlist
   useEffect(() => {
     watchlistRef.current = watchlist;
   }, [watchlist]);
 
-  // Sync items state when watchlist changes (add/remove)
   useEffect(() => {
     setItems(prev => {
       const prevMap = new Map(prev.map(i => [i.id, i]));
@@ -46,11 +45,10 @@ export function useMarketData(watchlist) {
       const data = await fetchPriceOverview(w.market_hash_name);
       const price = parseSteamPrice(data.lowest_price);
       const sales = data.volume ? parseInt(data.volume.replace(/,/g, ''), 10) : null;
-
       const newMedian = parseSteamPrice(data.median_price);
+
       setItems(prev => prev.map(it => {
         if (it.id !== id) return it;
-        // prevPrice tracks previous median (primary display price)
         return {
           ...it,
           status: 'ok',
@@ -63,7 +61,7 @@ export function useMarketData(watchlist) {
         };
       }));
 
-      // Fetch image + item_nameid lazily if not yet loaded
+      // Lazy-fetch image, pricehistory, and order book if not yet loaded
       setItems(prev => {
         const current = prev.find(i => i.id === id);
         if (!current?.imageUrl) {
@@ -71,10 +69,30 @@ export function useMarketData(watchlist) {
             if (imageUrl) setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
           });
         }
+        if (!current?.history) {
+          fetchPriceHistory(w.market_hash_name).then(d => {
+            const series = parseHistoryToSeries(d.prices);
+            const recentPrice = series.length ? series[series.length - 1].value : null;
+            setItems(p => p.map(i => i.id === id ? { ...i, history: series, recentPrice } : i));
+          }).catch(() => {});
+        }
         if (!current?.item_nameid) {
-          fetchItemNameId(w.market_hash_name).then(item_nameid => {
-            if (item_nameid) setItems(p => p.map(i => i.id === id ? { ...i, item_nameid } : i));
+          fetchItemNameId(w.market_hash_name).then(async item_nameid => {
+            if (!item_nameid) return;
+            setItems(p => p.map(i => i.id === id ? { ...i, item_nameid } : i));
+            try {
+              const bookData = await fetchOrderBook(item_nameid);
+              const topBid = bookData.buy_order_graph?.[0]?.[0];
+              const highestBid = topBid != null ? topBid / 100 : null;
+              setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
+            } catch {}
           });
+        } else if (current.highestBid == null) {
+          fetchOrderBook(current.item_nameid).then(bookData => {
+            const topBid = bookData.buy_order_graph?.[0]?.[0];
+            const highestBid = topBid != null ? topBid / 100 : null;
+            setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
+          }).catch(() => {});
         }
         return prev;
       });
@@ -89,7 +107,6 @@ export function useMarketData(watchlist) {
     setRotationEnabled(next);
   }, []);
 
-  // Rotation loop
   useEffect(() => {
     const getDelay = () => calcDelay(watchlistRef.current.length);
 
@@ -101,26 +118,24 @@ export function useMarketData(watchlist) {
       rotationRef.current += 1;
       updateItem(id);
       const delay = getDelay();
-      setNextUpdateIn(delay);
+      nextUpdateAtRef.current = Date.now() + delay;
       timerRef.current = setTimeout(tick, delay);
     };
 
-    // Initial load — staggered
+    // Initial staggered load
     watchlist.forEach((w, i) => {
       setTimeout(() => updateItem(w.id), i * 1200);
     });
 
     const firstDelay = watchlist.length * 1200 + 2000;
+    nextUpdateAtRef.current = Date.now() + firstDelay;
     timerRef.current = setTimeout(tick, firstDelay);
-    setNextUpdateIn(firstDelay);
 
-    let remaining = firstDelay;
     countdownRef.current = setInterval(() => {
       if (rotationEnabledRef.current) {
-        remaining = Math.max(0, remaining - 1000);
-        setNextUpdateIn(remaining);
+        setNextUpdateIn(Math.max(0, nextUpdateAtRef.current - Date.now()));
       }
-    }, 1000);
+    }, 500);
 
     const onVisibility = () => { activeRef.current = !document.hidden; };
     document.addEventListener('visibilitychange', onVisibility);
