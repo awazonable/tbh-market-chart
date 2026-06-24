@@ -5,3 +5,5 @@ client/dist/
 .env
 # DO NOT commit your Steam cookies
 server/cookies.txt
+# Server-side persisted cache (price data, not source code)
+server/data/

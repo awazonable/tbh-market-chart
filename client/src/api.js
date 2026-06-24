@@ -66,13 +66,20 @@ export function parseSteamPrice(str) {
 
 // Convert pricehistory prices array to [{time, value}] for lightweight-charts
 // Steam format: [["Jun 22 2025 01: +0", "2.41", "12"], ...]
+// Preserves hourly precision by parsing the hour field explicitly.
+const MONTHS = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+
 export function parseHistoryToSeries(prices) {
   if (!Array.isArray(prices)) return [];
   const seen = new Set();
   return prices
     .map(([dateStr, priceStr]) => {
-      const d = new Date(dateStr.replace(/ \d+: \+0/, ''));
-      const time = Math.floor(d.getTime() / 1000);
+      // "Jun 22 2025 01: +0" → month, day, year, hour (UTC)
+      const m = dateStr.match(/^(\w{3}) +(\d+) +(\d{4}) +(\d+): \+0/);
+      if (!m) return null;
+      const mo = MONTHS[m[1]];
+      if (mo === undefined) return null;
+      const time = Math.floor(Date.UTC(+m[3], mo, +m[2], +m[4], 0, 0) / 1000);
       const value = parseFloat(priceStr);
       if (isNaN(time) || isNaN(value)) return null;
       if (seen.has(time)) return null;

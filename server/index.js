@@ -19,12 +19,69 @@ let queueRunning = false;
 app.use(cors());
 app.use(express.json());
 
-// Load cookies from cookies.txt (Netscape format or raw header string)
+// ---------------------------------------------------------------------------
+// Persistent state (watchlist + last-known item prices)
+// Stored in server/data/state.json — gitignored
+// ---------------------------------------------------------------------------
+const DATA_DIR = path.join(__dirname, 'data');
+const STATE_FILE = path.join(DATA_DIR, 'state.json');
+
+let persistedState = { watchlist: [], items: {} };
+
+function loadPersistedState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      persistedState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('[state] load failed:', e.message);
+  }
+}
+
+let saveTimer = null;
+function savePersistedState() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(STATE_FILE, JSON.stringify(persistedState));
+    } catch (e) {
+      console.error('[state] save failed:', e.message);
+    }
+  }, 1500); // debounce: write at most once per 1.5s
+}
+
+loadPersistedState();
+
+// GET /api/state — returns persisted watchlist + item data
+app.get('/api/state', (_req, res) => {
+  res.json(persistedState);
+});
+
+// PUT /api/state/watchlist — update watchlist
+app.put('/api/state/watchlist', (req, res) => {
+  if (!Array.isArray(req.body.watchlist)) return res.status(400).json({ error: 'watchlist must be array' });
+  persistedState.watchlist = req.body.watchlist;
+  savePersistedState();
+  res.json({ ok: true });
+});
+
+// PUT /api/state/items/:id — merge item data into persisted state
+app.put('/api/state/items/:id', (req, res) => {
+  const { id } = req.params;
+  persistedState.items[id] = { ...persistedState.items[id], ...req.body };
+  savePersistedState();
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Steam proxy helpers
+// ---------------------------------------------------------------------------
+
 function loadCookies() {
   const cookiePath = path.join(__dirname, 'cookies.txt');
   if (!fs.existsSync(cookiePath)) return '';
   const raw = fs.readFileSync(cookiePath, 'utf8').trim();
-  // If it looks like a raw cookie header string, use as-is
   if (raw.startsWith('steamLoginSecure') || raw.includes('=')) return raw;
   return raw;
 }
@@ -67,6 +124,10 @@ async function steamGet(url, params, responseType = 'json') {
   const res = await axios.get(url, { params, headers, timeout: 10000, responseType });
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Steam API endpoints
+// ---------------------------------------------------------------------------
 
 // GET /api/pricehistory?market_hash_name=...
 app.get('/api/pricehistory', async (req, res) => {
@@ -117,7 +178,6 @@ app.get('/api/priceoverview', async (req, res) => {
 });
 
 // GET /api/item_nameid?market_hash_name=...
-// Fetches the Steam market listing page and extracts the item_nameid used for order book
 app.get('/api/item_nameid', async (req, res) => {
   const { market_hash_name } = req.query;
   if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
@@ -125,6 +185,13 @@ app.get('/api/item_nameid', async (req, res) => {
   const key = `nameid:${market_hash_name}`;
   const cached = nameIdCache.get(key);
   if (cached !== undefined) return res.json({ item_nameid: cached });
+
+  // Also check persisted state
+  const itemId = market_hash_name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  if (persistedState.items[itemId]?.item_nameid) {
+    nameIdCache.set(key, persistedState.items[itemId].item_nameid);
+    return res.json({ item_nameid: persistedState.items[itemId].item_nameid });
+  }
 
   try {
     const html = await enqueue(() =>
@@ -212,4 +279,5 @@ app.delete('/api/cache/:key', (req, res) => {
 app.listen(PORT, () => {
   console.log(`[proxy] listening on http://localhost:${PORT}`);
   console.log(`[proxy] cookies.txt: ${fs.existsSync(path.join(__dirname, 'cookies.txt')) ? 'found' : 'NOT found — pricehistory will fail'}`);
+  console.log(`[proxy] persisted state: ${persistedState.watchlist.length} watchlist items, ${Object.keys(persistedState.items).length} cached items`);
 });

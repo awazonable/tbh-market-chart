@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchPriceOverview, fetchPriceHistory, fetchOrderBook, fetchItemImage, fetchItemNameId, parseSteamPrice, parseHistoryToSeries } from '../api.js';
 
 const ROTATION_INTERVAL = 10 * 60 * 1000; // 10 min full rotation
+const BASE = '/api';
 
 function calcDelay(total) {
   return Math.floor(ROTATION_INTERVAL / Math.max(total, 1));
@@ -9,6 +10,14 @@ function calcDelay(total) {
 
 function makeItem(w) {
   return { ...w, status: 'pending', price: null, prevPrice: null, median: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null, item_nameid: null, history: null, recentPrice: null, highestBid: null };
+}
+
+function saveItemToServer(id, data) {
+  fetch(`${BASE}/state/items/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).catch(() => {});
 }
 
 export function useMarketData(watchlist) {
@@ -28,6 +37,33 @@ export function useMarketData(watchlist) {
     watchlistRef.current = watchlist;
   }, [watchlist]);
 
+  // Hydrate from server-persisted state on mount (shows cached prices immediately on refresh)
+  useEffect(() => {
+    fetch(`${BASE}/state`)
+      .then(r => r.ok ? r.json() : null)
+      .then(state => {
+        if (!state?.items) return;
+        setItems(prev => prev.map(it => {
+          const c = state.items[it.id];
+          if (!c) return it;
+          return {
+            ...it,
+            status: c.price != null ? 'ok' : it.status,
+            price: c.price ?? it.price,
+            median: c.median ?? it.median,
+            sales: c.sales ?? it.sales,
+            recentPrice: c.recentPrice ?? it.recentPrice,
+            highestBid: c.highestBid ?? it.highestBid,
+            imageUrl: c.imageUrl ?? it.imageUrl,
+            item_nameid: c.item_nameid ?? it.item_nameid,
+            updatedAt: c.updatedAt ?? it.updatedAt,
+          };
+        }));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Sync items state when watchlist changes (add/remove)
   useEffect(() => {
     setItems(prev => {
       const prevMap = new Map(prev.map(i => [i.id, i]));
@@ -46,6 +82,7 @@ export function useMarketData(watchlist) {
       const price = parseSteamPrice(data.lowest_price);
       const sales = data.volume ? parseInt(data.volume.replace(/,/g, ''), 10) : null;
       const newMedian = parseSteamPrice(data.median_price);
+      const updatedAt = Date.now();
 
       setItems(prev => prev.map(it => {
         if (it.id !== id) return it;
@@ -57,34 +94,45 @@ export function useMarketData(watchlist) {
           price,
           median: newMedian,
           sales,
-          updatedAt: Date.now(),
+          updatedAt,
         };
       }));
+
+      saveItemToServer(id, { price, median: newMedian, sales, updatedAt });
 
       // Lazy-fetch image, pricehistory, and order book if not yet loaded
       setItems(prev => {
         const current = prev.find(i => i.id === id);
+
         if (!current?.imageUrl) {
           fetchItemImage(w.market_hash_name).then(imageUrl => {
-            if (imageUrl) setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
+            if (imageUrl) {
+              setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
+              saveItemToServer(id, { imageUrl });
+            }
           });
         }
+
         if (!current?.history) {
           fetchPriceHistory(w.market_hash_name).then(d => {
             const series = parseHistoryToSeries(d.prices);
             const recentPrice = series.length ? series[series.length - 1].value : null;
             setItems(p => p.map(i => i.id === id ? { ...i, history: series, recentPrice } : i));
+            if (recentPrice != null) saveItemToServer(id, { recentPrice });
           }).catch(() => {});
         }
+
         if (!current?.item_nameid) {
           fetchItemNameId(w.market_hash_name).then(async item_nameid => {
             if (!item_nameid) return;
             setItems(p => p.map(i => i.id === id ? { ...i, item_nameid } : i));
+            saveItemToServer(id, { item_nameid });
             try {
               const bookData = await fetchOrderBook(item_nameid);
               const topBid = bookData.buy_order_graph?.[0]?.[0];
               const highestBid = topBid != null ? topBid / 100 : null;
               setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
+              if (highestBid != null) saveItemToServer(id, { highestBid });
             } catch {}
           });
         } else if (current.highestBid == null) {
@@ -92,8 +140,10 @@ export function useMarketData(watchlist) {
             const topBid = bookData.buy_order_graph?.[0]?.[0];
             const highestBid = topBid != null ? topBid / 100 : null;
             setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
+            if (highestBid != null) saveItemToServer(id, { highestBid });
           }).catch(() => {});
         }
+
         return prev;
       });
     } catch {

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WATCHLIST } from '../watchlist.js';
 
 const KEY = 'tbh_watchlist';
+const BASE = '/api';
 
 export function parseMarketUrl(url) {
   const m = url.trim().match(/market\/listings\/\d+\/(.+)/);
@@ -9,6 +10,14 @@ export function parseMarketUrl(url) {
   const name = decodeURIComponent(m[1]);
   const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
   return { id, market_hash_name: name, category: 'material' };
+}
+
+function syncWatchlistToServer(list) {
+  fetch(`${BASE}/state/watchlist`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ watchlist: list }),
+  }).catch(() => {});
 }
 
 export function useWatchlist() {
@@ -21,9 +30,30 @@ export function useWatchlist() {
     }
   });
 
+  // On mount: fetch server watchlist; server wins if it has data, otherwise push local to server
+  useEffect(() => {
+    fetch(`${BASE}/state`)
+      .then(r => r.ok ? r.json() : null)
+      .then(state => {
+        if (state?.watchlist?.length) {
+          setList(state.watchlist);
+          localStorage.setItem(KEY, JSON.stringify(state.watchlist));
+        } else {
+          // Server is empty (first run or reset) — push local list to server
+          const local = (() => {
+            try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : WATCHLIST; }
+            catch { return WATCHLIST; }
+          })();
+          syncWatchlistToServer(local);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const persist = (next) => {
     setList(next);
     localStorage.setItem(KEY, JSON.stringify(next));
+    syncWatchlistToServer(next);
   };
 
   const addItem = (parsed) => {

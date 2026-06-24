@@ -62,10 +62,11 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     return () => { cancelled = true; };
   }, [item.item_nameid]);
 
-  // Initialize chart
+  // Initialize chart (autoSize fills container automatically)
   useEffect(() => {
     if (!chartRef.current) return;
     const chart = createChart(chartRef.current, {
+      autoSize: true,
       layout: { background: { color: '#161616' }, textColor: '#888' },
       grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
       crosshair: { mode: 1 },
@@ -75,7 +76,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
       handleScale: true,
     });
     const lineSeries = chart.addLineSeries({
-      color: up === false ? 'var(--red)' : '#13a361',
+      color: '#13a361',
       lineWidth: 2,
       crosshairMarkerVisible: true,
       lastValueVisible: true,
@@ -84,15 +85,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     chartInstanceRef.current = chart;
     seriesRef.current = lineSeries;
 
-    const ro = new ResizeObserver(() => {
-      if (chartRef.current) {
-        chart.applyOptions({ width: chartRef.current.clientWidth });
-      }
-    });
-    ro.observe(chartRef.current);
-
     return () => {
-      ro.disconnect();
       chart.remove();
     };
   }, []); // eslint-disable-line
