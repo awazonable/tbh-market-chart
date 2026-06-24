@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchPriceOverview, fetchPriceHistory, fetchOrderBook, fetchItemImage, fetchItemNameId, parseSteamPrice, parseHistoryToSeries } from '../api.js';
+import { fetchPriceOverview, fetchPriceHistory, parseSteamPrice, parseHistoryToSeries } from '../api.js';
 
 const ROTATION_INTERVAL = 10 * 60 * 1000; // 10 min full rotation
 const BASE = '/api';
@@ -9,7 +9,16 @@ function calcDelay(total) {
 }
 
 function makeItem(w) {
-  return { ...w, status: 'pending', price: null, prevPrice: null, median: null, sales: null, prevSales: null, updatedAt: null, imageUrl: null, item_nameid: null, history: null, recentPrice: null, highestBid: null };
+  return {
+    ...w,
+    status: 'pending',
+    price: null, prevPrice: null,
+    median: null, sales: null, prevSales: null,
+    updatedAt: null,
+    imageUrl: null,
+    history: null, recentPrice: null,
+    highestBid: null,
+  };
 }
 
 function saveItemToServer(id, data) {
@@ -33,11 +42,9 @@ export function useMarketData(watchlist) {
   const watchlistRef = useRef(watchlist);
   const nextUpdateAtRef = useRef(0);
 
-  useEffect(() => {
-    watchlistRef.current = watchlist;
-  }, [watchlist]);
+  useEffect(() => { watchlistRef.current = watchlist; }, [watchlist]);
 
-  // Hydrate from server-persisted state on mount (shows cached prices immediately on refresh)
+  // Hydrate from server-persisted state on mount
   useEffect(() => {
     fetch(`${BASE}/state`)
       .then(r => r.ok ? r.json() : null)
@@ -55,7 +62,6 @@ export function useMarketData(watchlist) {
             recentPrice: c.recentPrice ?? it.recentPrice,
             highestBid: c.highestBid ?? it.highestBid,
             imageUrl: c.imageUrl ?? it.imageUrl,
-            item_nameid: c.item_nameid ?? it.item_nameid,
             updatedAt: c.updatedAt ?? it.updatedAt,
           };
         }));
@@ -63,7 +69,7 @@ export function useMarketData(watchlist) {
       .catch(() => {});
   }, []);
 
-  // Sync items state when watchlist changes (add/remove)
+  // Sync items when watchlist changes (add/remove)
   useEffect(() => {
     setItems(prev => {
       const prevMap = new Map(prev.map(i => [i.id, i]));
@@ -86,33 +92,13 @@ export function useMarketData(watchlist) {
 
       setItems(prev => prev.map(it => {
         if (it.id !== id) return it;
-        return {
-          ...it,
-          status: 'ok',
-          prevPrice: it.median ?? it.price,
-          prevSales: it.sales,
-          price,
-          median: newMedian,
-          sales,
-          updatedAt,
-        };
+        return { ...it, status: 'ok', prevPrice: it.median ?? it.price, prevSales: it.sales, price, median: newMedian, sales, updatedAt };
       }));
-
       saveItemToServer(id, { price, median: newMedian, sales, updatedAt });
 
-      // Lazy-fetch image, pricehistory, and order book if not yet loaded
+      // Lazy-fetch price history if not yet loaded
       setItems(prev => {
         const current = prev.find(i => i.id === id);
-
-        if (!current?.imageUrl) {
-          fetchItemImage(w.market_hash_name).then(imageUrl => {
-            if (imageUrl) {
-              setItems(p => p.map(i => i.id === id ? { ...i, imageUrl } : i));
-              saveItemToServer(id, { imageUrl });
-            }
-          });
-        }
-
         if (!current?.history) {
           fetchPriceHistory(w.market_hash_name).then(d => {
             const series = parseHistoryToSeries(d.prices);
@@ -121,29 +107,6 @@ export function useMarketData(watchlist) {
             if (recentPrice != null) saveItemToServer(id, { recentPrice });
           }).catch(() => {});
         }
-
-        if (!current?.item_nameid) {
-          fetchItemNameId(w.market_hash_name).then(async item_nameid => {
-            if (!item_nameid) return;
-            setItems(p => p.map(i => i.id === id ? { ...i, item_nameid } : i));
-            saveItemToServer(id, { item_nameid });
-            try {
-              const bookData = await fetchOrderBook(item_nameid);
-              const topBid = bookData.buy_order_graph?.[0]?.[0];
-              const highestBid = topBid != null ? topBid / 100 : null;
-              setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
-              if (highestBid != null) saveItemToServer(id, { highestBid });
-            } catch {}
-          });
-        } else if (current.highestBid == null) {
-          fetchOrderBook(current.item_nameid).then(bookData => {
-            const topBid = bookData.buy_order_graph?.[0]?.[0];
-            const highestBid = topBid != null ? topBid / 100 : null;
-            setItems(p => p.map(i => i.id === id ? { ...i, highestBid } : i));
-            if (highestBid != null) saveItemToServer(id, { highestBid });
-          }).catch(() => {});
-        }
-
         return prev;
       });
     } catch {
@@ -172,7 +135,6 @@ export function useMarketData(watchlist) {
       timerRef.current = setTimeout(tick, delay);
     };
 
-    // Initial staggered load
     watchlist.forEach((w, i) => {
       setTimeout(() => updateItem(w.id), i * 1200);
     });
@@ -197,9 +159,22 @@ export function useMarketData(watchlist) {
     };
   }, []); // eslint-disable-line
 
-  const forceUpdate = useCallback((id) => {
-    updateItem(id);
-  }, [updateItem]);
+  const forceUpdate = useCallback((id) => { updateItem(id); }, [updateItem]);
 
-  return { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation };
+  // Called from ChartDrawer after it fetches order-data on-demand.
+  // Propagates icon_url and highestBid back into global item state.
+  const applyOrderData = useCallback((id, data) => {
+    const topBid = data.buyOrders?.[0]?.[0];
+    const highestBid = topBid != null ? topBid / 100 : null;
+    const imageUrl = data.icon_url ?? null;
+    const patch = {};
+    if (highestBid != null) patch.highestBid = highestBid;
+    if (imageUrl) patch.imageUrl = imageUrl;
+    if (Object.keys(patch).length) {
+      setItems(p => p.map(i => i.id === id ? { ...i, ...patch } : i));
+      saveItemToServer(id, patch);
+    }
+  }, []);
+
+  return { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation, applyOrderData };
 }

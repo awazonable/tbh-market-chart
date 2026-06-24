@@ -9,7 +9,7 @@ import styles from './App.module.css';
 
 export default function App() {
   const { list: watchlist, addItem, removeItem } = useWatchlist();
-  const { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation } = useMarketData(watchlist);
+  const { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation, applyOrderData } = useMarketData(watchlist);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('default');
@@ -134,6 +134,7 @@ export default function App() {
             onClose={() => setSelectedId(null)}
             onForceUpdate={() => forceUpdate(selectedId)}
             onCookieEdit={() => setCookieModalOpen(true)}
+            onOrderData={(data) => applyOrderData(selectedId, data)}
           />
         )}
       </div>

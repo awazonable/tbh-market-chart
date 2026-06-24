@@ -32,10 +32,11 @@
 }
 
 .icon {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   image-rendering: pixelated;
+  border-radius: 2px;
 }
 
 .name {

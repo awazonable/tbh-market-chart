@@ -1,23 +1,25 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart } from 'lightweight-charts';
-import { fetchPriceHistory, fetchOrderBook, parseHistoryToSeries, formatPrice, getCurrencyInfo } from '../api.js';
+import { fetchPriceHistory, fetchOrderData, parseHistoryFull, formatPrice } from '../api.js';
 import styles from './ChartDrawer.module.css';
 
 const PERIODS = ['1D', '1W', '1M'];
 
-export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
+export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrderData }) {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const seriesRef = useRef(null);
+  const volumeSeriesRef = useRef(null);
   const [period, setPeriod] = useState('1W');
+  // history = { price: [{time,value}], volume: [{time,value,color}] } | null
   const [history, setHistory] = useState(null);
   const [orderBook, setOrderBook] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingBook, setLoadingBook] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
-  const { market_hash_name, price, prevPrice, median, sales, prevSales, status, imageUrl, highestBid, recentPrice } = item;
-  // Primary: average of highest buy order and most recent transaction
+  const { market_hash_name, price, prevPrice, median, sales, prevSales, imageUrl, highestBid, recentPrice } = item;
+
   const displayPrice = (() => {
     if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
     if (recentPrice != null) return recentPrice;
@@ -38,33 +40,34 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
     fetchPriceHistory(market_hash_name)
       .then(data => {
         if (cancelled) return;
-        const series = parseHistoryToSeries(data.prices);
-        setHistory(series);
+        setHistory(parseHistoryFull(data.prices));
       })
       .catch(e => {
         if (cancelled) return;
         setHistoryError(e.message);
-        setHistory([]);
+        setHistory({ price: [], volume: [] });
       })
       .finally(() => { if (!cancelled) setLoadingHistory(false); });
     return () => { cancelled = true; };
   }, [market_hash_name]);
 
-  // Load order book (item_nameid unknown without extra request — use placeholder)
+  // Load order book on-demand (not in background rotation)
   useEffect(() => {
-    // item_nameid requires fetching the market listing page first.
-    // For now we show a placeholder; set item.item_nameid in watchlist.js once known.
-    if (!item.item_nameid) { setOrderBook(null); return; }
     let cancelled = false;
+    setOrderBook(null);
     setLoadingBook(true);
-    fetchOrderBook(item.item_nameid)
-      .then(data => { if (!cancelled) setOrderBook(data); })
+    fetchOrderData(market_hash_name)
+      .then(data => {
+        if (cancelled) return;
+        setOrderBook(data);
+        if (onOrderData) onOrderData(data);
+      })
       .catch(() => { if (!cancelled) setOrderBook(null); })
       .finally(() => { if (!cancelled) setLoadingBook(false); });
     return () => { cancelled = true; };
-  }, [item.item_nameid]);
+  }, [market_hash_name]);
 
-  // Initialize chart
+  // Initialize chart with price line + volume histogram
   useEffect(() => {
     if (!chartRef.current) return;
     const chart = createChart(chartRef.current, {
@@ -72,7 +75,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
       layout: { background: { color: '#161616' }, textColor: '#888' },
       grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
       crosshair: { mode: 1 },
-      rightPriceScale: { borderColor: '#2e2e2e' },
+      rightPriceScale: { borderColor: '#2e2e2e', scaleMargins: { top: 0.05, bottom: 0.25 } },
       timeScale: { borderColor: '#2e2e2e', timeVisible: true },
       handleScroll: true,
       handleScale: true,
@@ -84,30 +87,36 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
       lastValueVisible: true,
       priceLineVisible: true,
     });
+    const volSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'vol',
+    });
+    chart.priceScale('vol').applyOptions({
+      scaleMargins: { top: 0.78, bottom: 0 },
+    });
     chartInstanceRef.current = chart;
     seriesRef.current = lineSeries;
-
-    return () => {
-      chart.remove();
-    };
+    volumeSeriesRef.current = volSeries;
+    return () => { chart.remove(); };
   }, []); // eslint-disable-line
 
   // Update series when history or period changes
   useEffect(() => {
     if (!seriesRef.current || !history) return;
-    const filtered = filterByPeriod(history, period);
-    seriesRef.current.setData(filtered);
-    if (chartInstanceRef.current && filtered.length > 0) {
+    const filteredPrice = filterByPeriod(history.price, period);
+    const filteredVol = filterByPeriod(history.volume, period);
+    seriesRef.current.setData(filteredPrice);
+    if (volumeSeriesRef.current) volumeSeriesRef.current.setData(filteredVol);
+    if (chartInstanceRef.current && filteredPrice.length > 0) {
       chartInstanceRef.current.timeScale().fitContent();
     }
   }, [history, period]);
 
   const handleForceUpdate = useCallback(() => {
     onForceUpdate();
-    // Also reload chart data
     setLoadingHistory(true);
     fetchPriceHistory(market_hash_name)
-      .then(data => { setHistory(parseHistoryToSeries(data.prices)); })
+      .then(data => { setHistory(parseHistoryFull(data.prices)); })
       .catch(e => setHistoryError(e.message))
       .finally(() => setLoadingHistory(false));
   }, [market_hash_name, onForceUpdate]);
@@ -120,7 +129,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
           {imageUrl && <img src={imageUrl} className={styles.itemIcon} alt="" />}
           <div>
             <div className={styles.itemName}>{market_hash_name}</div>
-          <div className={styles.itemMeta}>
+            <div className={styles.itemMeta}>
               {item.category === 'material' ? '素材' : '装備'}
               {sales != null && <> · sales {sales.toLocaleString()}{salesDiff != null ? ` (+${salesDiff} vs cache)` : ''}</>}
             </div>
@@ -149,9 +158,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
             key={p}
             className={`${styles.periodBtn} ${period === p ? styles.periodActive : ''}`}
             onClick={() => setPeriod(p)}
-          >
-            {p}
-          </button>
+          >{p}</button>
         ))}
         <button className={styles.refreshBtn} onClick={handleForceUpdate} title="手動更新">
           ⟳ 手動更新
@@ -192,25 +199,24 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
         <div className={styles.bookHeader}>
           <span>Buy / Sell 板</span><span>qty</span>
         </div>
-        {item.item_nameid ? (
-          loadingBook ? <div className={styles.bookLoading}>読み込み中...</div> :
-          orderBook ? <OrderBookRows data={orderBook} /> :
-          <div className={styles.bookLoading}>板情報なし</div>
+        {loadingBook ? (
+          <div className={styles.bookLoading}>読み込み中...</div>
+        ) : orderBook ? (
+          <OrderBookRows data={orderBook} />
         ) : (
-          <div className={styles.bookLoading}>
-            item_nameid 未設定 — watchlist.js に追加してください
-          </div>
+          <div className={styles.bookLoading}>板情報なし</div>
         )}
       </div>
     </div>
   );
 }
 
+// data = { buyOrders: [[priceInternal, qty], ...], sellOrders: [[...]] }
+// buyOrders: highest bid first; sellOrders: lowest ask first
+// priceInternal / 100 = currency value
 function OrderBookRows({ data }) {
-  const sells = (data.sell_order_graph || []).slice(0, 5).reverse();
-  const buys = (data.buy_order_graph || []).slice(0, 5);
-  const spread = data.sell_order_summary && data.buy_order_summary
-    ? null : null; // parsed from HTML string — skip for now
+  const sells = (data.sellOrders || []).slice(0, 5);
+  const buys = (data.buyOrders || []).slice(0, 5);
 
   const maxQty = Math.max(
     ...sells.map(r => r[1] || 0),
@@ -220,12 +226,12 @@ function OrderBookRows({ data }) {
 
   return (
     <>
-      {sells.map(([price, qty], i) => (
-        <BookRow key={`s${i}`} price={price} qty={qty} maxQty={maxQty} side="sell" />
+      {[...sells].reverse().map(([p, qty], i) => (
+        <BookRow key={`s${i}`} price={p} qty={qty} maxQty={maxQty} side="sell" />
       ))}
-      <div className={styles.spreadRow}>spread ～</div>
-      {buys.map(([price, qty], i) => (
-        <BookRow key={`b${i}`} price={price} qty={qty} maxQty={maxQty} side="buy" />
+      <div className={styles.spreadRow}>── spread ──</div>
+      {buys.map(([p, qty], i) => (
+        <BookRow key={`b${i}`} price={p} qty={qty} maxQty={maxQty} side="buy" />
       ))}
     </>
   );
@@ -237,7 +243,7 @@ function BookRow({ price, qty, maxQty, side }) {
   const barColor = side === 'sell' ? '#d23b3b55' : '#13a36155';
   return (
     <div className={styles.bookRow}>
-      <span className={styles.bookPrice} style={{ color }}>{typeof price === 'number' ? formatPrice(price / 100) : price}</span>
+      <span className={styles.bookPrice} style={{ color }}>{formatPrice(price / 100)}</span>
       <div className={styles.bookBar}>
         {side === 'sell'
           ? <div style={{ width: `${pct}%`, height: '8px', background: barColor, marginLeft: 'auto' }} />
@@ -250,7 +256,7 @@ function BookRow({ price, qty, maxQty, side }) {
 }
 
 function filterByPeriod(data, period) {
-  if (!data.length) return data;
+  if (!data || !data.length) return [];
   const now = data[data.length - 1].time;
   const cutoff = {
     '1D': now - 86400,

@@ -11,8 +11,6 @@ const APPID = 3678970;
 const CACHE_TTL = 600; // 10 min
 
 const cache = new NodeCache({ stdTTL: CACHE_TTL });
-const imageCache = new NodeCache({ stdTTL: 86400 }); // 24h — icons don't change
-const nameIdCache = new NodeCache({ stdTTL: 0 }); // permanent — item_nameid never changes
 const requestQueue = [];
 let queueRunning = false;
 
@@ -21,7 +19,6 @@ app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Persistent state (watchlist + last-known item prices)
-// Stored in server/data/state.json — gitignored
 // ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
@@ -48,17 +45,41 @@ function savePersistedState() {
     } catch (e) {
       console.error('[state] save failed:', e.message);
     }
-  }, 1500); // debounce: write at most once per 1.5s
+  }, 1500);
+}
+
+// ---------------------------------------------------------------------------
+// File-based pricehistory cache — survives server restarts
+// ---------------------------------------------------------------------------
+const HISTORY_CACHE_FILE = path.join(DATA_DIR, 'pricehistory-cache.json');
+let historyFileCache = {};
+
+function loadHistoryCache() {
+  try {
+    if (fs.existsSync(HISTORY_CACHE_FILE)) {
+      historyFileCache = JSON.parse(fs.readFileSync(HISTORY_CACHE_FILE, 'utf8'));
+    }
+  } catch (e) { console.error('[history-cache] load failed:', e.message); }
+}
+
+let historySaveTimer = null;
+function persistHistoryCache() {
+  clearTimeout(historySaveTimer);
+  historySaveTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(HISTORY_CACHE_FILE, JSON.stringify(historyFileCache));
+    } catch (e) { console.error('[history-cache] save failed:', e.message); }
+  }, 2000);
 }
 
 loadPersistedState();
+loadHistoryCache();
 
-// GET /api/state — returns persisted watchlist + item data
-app.get('/api/state', (_req, res) => {
-  res.json(persistedState);
-});
+// GET /api/state
+app.get('/api/state', (_req, res) => res.json(persistedState));
 
-// PUT /api/state/watchlist — update watchlist
+// PUT /api/state/watchlist
 app.put('/api/state/watchlist', (req, res) => {
   if (!Array.isArray(req.body.watchlist)) return res.status(400).json({ error: 'watchlist must be array' });
   persistedState.watchlist = req.body.watchlist;
@@ -66,7 +87,7 @@ app.put('/api/state/watchlist', (req, res) => {
   res.json({ ok: true });
 });
 
-// PUT /api/state/items/:id — merge item data into persisted state
+// PUT /api/state/items/:id
 app.put('/api/state/items/:id', (req, res) => {
   const { id } = req.params;
   persistedState.items[id] = { ...persistedState.items[id], ...req.body };
@@ -81,9 +102,11 @@ app.put('/api/state/items/:id', (req, res) => {
 function loadCookies() {
   const cookiePath = path.join(__dirname, 'cookies.txt');
   if (!fs.existsSync(cookiePath)) return '';
-  const raw = fs.readFileSync(cookiePath, 'utf8').trim();
-  if (raw.startsWith('steamLoginSecure') || raw.includes('=')) return raw;
-  return raw;
+  return fs.readFileSync(cookiePath, 'utf8')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+    .join('; ');
 }
 
 function sleep(ms) {
@@ -101,8 +124,8 @@ async function processQueue() {
     } catch (e) {
       task.reject(e);
     }
-    const delay = 1000 + Math.random() * 500;
-    await sleep(delay);
+    // Longer delay to avoid Steam rate limiting
+    await sleep(2000 + Math.random() * 1000);
   }
   queueRunning = false;
 }
@@ -129,12 +152,16 @@ async function steamGet(url, params, responseType = 'json') {
 // Steam API endpoints
 // ---------------------------------------------------------------------------
 
-// GET /api/pricehistory?market_hash_name=...
+// GET /api/pricehistory?market_hash_name=...&currency=...
+// Includes file-based fallback cache for when Steam rate-limits
 app.get('/api/pricehistory', async (req, res) => {
   const { market_hash_name } = req.query;
   if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
 
-  const cacheKey = `pricehistory:${market_hash_name}`;
+  const currency = req.query.currency || 1;
+  const cacheKey = `pricehistory:${market_hash_name}:${currency}`;
+  const fileKey = `${market_hash_name}:${currency}`;
+
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ ...cached, _cached: true });
 
@@ -143,12 +170,26 @@ app.get('/api/pricehistory', async (req, res) => {
       steamGet('https://steamcommunity.com/market/pricehistory/', {
         appid: APPID,
         market_hash_name,
-        currency: req.query.currency || 1,
+        currency,
       })
     );
-    cache.set(cacheKey, data);
+    if (data.prices && data.prices.length > 0) {
+      cache.set(cacheKey, data);
+      historyFileCache[fileKey] = data;
+      persistHistoryCache();
+      return res.json(data);
+    }
+    // Steam returned empty — try file cache
+    if (historyFileCache[fileKey]) {
+      cache.set(cacheKey, historyFileCache[fileKey]);
+      return res.json({ ...historyFileCache[fileKey], _fileCached: true });
+    }
     res.json(data);
   } catch (e) {
+    if (historyFileCache[fileKey]) {
+      cache.set(cacheKey, historyFileCache[fileKey]);
+      return res.json({ ...historyFileCache[fileKey], _fileCached: true });
+    }
     res.status(502).json({ error: e.message });
   }
 });
@@ -177,21 +218,17 @@ app.get('/api/priceoverview', async (req, res) => {
   }
 });
 
-// GET /api/item_nameid?market_hash_name=...
-app.get('/api/item_nameid', async (req, res) => {
+// GET /api/order-data?market_hash_name=...
+// Extracts compact order book + icon_url from the SSR listing page HTML.
+// Steam (2025+) embeds rgCompactBuyOrders/rgCompactSellOrders in SSR JSON;
+// prices are in internal units (÷100 = currency value).
+app.get('/api/order-data', async (req, res) => {
   const { market_hash_name } = req.query;
   if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
 
-  const key = `nameid:${market_hash_name}`;
-  const cached = nameIdCache.get(key);
-  if (cached !== undefined) return res.json({ item_nameid: cached });
-
-  // Also check persisted state
-  const itemId = market_hash_name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-  if (persistedState.items[itemId]?.item_nameid) {
-    nameIdCache.set(key, persistedState.items[itemId].item_nameid);
-    return res.json({ item_nameid: persistedState.items[itemId].item_nameid });
-  }
+  const cacheKey = `orderdata:${market_hash_name}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return res.json({ ...cached, _cached: true });
 
   try {
     const html = await enqueue(() =>
@@ -201,61 +238,28 @@ app.get('/api/item_nameid', async (req, res) => {
         'text'
       )
     );
-    const m = String(html).match(/Market_LoadOrderSpread\(\s*(\d+)\s*\)/);
-    if (!m) return res.status(404).json({ error: 'item_nameid not found in page' });
-    nameIdCache.set(key, m[1]);
-    res.json({ item_nameid: m[1] });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
+    const text = String(html);
 
-// GET /api/itemimage?market_hash_name=...
-app.get('/api/itemimage', async (req, res) => {
-  const { market_hash_name } = req.query;
-  if (!market_hash_name) return res.status(400).json({ error: 'market_hash_name required' });
+    const parseCompact = (str) => {
+      const nums = str.split(',').map(Number);
+      const result = [];
+      for (let i = 0; i + 1 < nums.length; i += 2) result.push([nums[i], nums[i + 1]]);
+      return result;
+    };
 
-  const key = `img:${market_hash_name}`;
-  const cached = imageCache.get(key);
-  if (cached !== undefined) return res.json(cached);
+    const buyMatch = text.match(/rgCompactBuyOrders[^[]*\[([0-9,]+)\]/);
+    const sellMatch = text.match(/rgCompactSellOrders[^[]*\[([0-9,]+)\]/);
+    const iconMatch = text.match(/href="(https:\/\/community[^"]+\/economy\/image\/[^"]+)"/);
 
-  try {
-    const data = await steamGet('https://steamcommunity.com/market/search/render/', {
-      appid: APPID,
-      query: market_hash_name,
-      count: 1,
-      search_descriptions: 0,
-      format: 'json',
-    });
-    const icon = data?.results?.[0]?.asset_description?.icon_url ?? null;
-    const result = icon
-      ? { icon_url: `https://community.akamai.steamstatic.com/economy/image/${icon}/64fx64f` }
-      : { icon_url: null };
-    imageCache.set(key, result);
-    res.json(result);
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
+    if (!buyMatch && !sellMatch) {
+      return res.status(404).json({ error: 'order data not found in page' });
+    }
 
-// GET /api/orderbook?item_nameid=...&currency=...
-app.get('/api/orderbook', async (req, res) => {
-  const { item_nameid, currency = '8' } = req.query;
-  if (!item_nameid) return res.status(400).json({ error: 'item_nameid required' });
-
-  const cacheKey = `orderbook:${item_nameid}:${currency}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return res.json({ ...cached, _cached: true });
-
-  try {
-    const data = await enqueue(() =>
-      steamGet('https://steamcommunity.com/market/itemordershistogram/', {
-        item_nameid,
-        language: 'english',
-        currency,
-        two_factor: 0,
-      })
-    );
+    const data = {
+      buyOrders: buyMatch ? parseCompact(buyMatch[1]) : [],
+      sellOrders: sellMatch ? parseCompact(sellMatch[1]) : [],
+      icon_url: iconMatch ? iconMatch[1] + '/64fx64f' : null,
+    };
     cache.set(cacheKey, data);
     res.json(data);
   } catch (e) {
@@ -263,7 +267,7 @@ app.get('/api/orderbook', async (req, res) => {
   }
 });
 
-// GET /api/cookies/status — check if cookies.txt exists and has content
+// GET /api/cookies/status
 app.get('/api/cookies/status', (_req, res) => {
   const cookiePath = path.join(__dirname, 'cookies.txt');
   const exists = fs.existsSync(cookiePath);
@@ -271,7 +275,7 @@ app.get('/api/cookies/status', (_req, res) => {
   res.json({ exists, hasContent: size > 10 });
 });
 
-// POST /api/cookies — write cookies.txt
+// POST /api/cookies
 app.post('/api/cookies', (req, res) => {
   const { cookie } = req.body;
   if (!cookie || typeof cookie !== 'string' || !cookie.trim()) {
@@ -285,14 +289,13 @@ app.post('/api/cookies', (req, res) => {
   }
 });
 
-// GET /api/cache/status — show cache keys and TTLs
+// GET /api/cache/status
 app.get('/api/cache/status', (_req, res) => {
   const keys = cache.keys();
-  const status = keys.map(k => ({ key: k, ttl: cache.getTtl(k) }));
-  res.json({ count: keys.length, queue: requestQueue.length, items: status });
+  res.json({ count: keys.length, queue: requestQueue.length, items: keys.map(k => ({ key: k, ttl: cache.getTtl(k) })) });
 });
 
-// DELETE /api/cache/:key — force invalidate
+// DELETE /api/cache/:key
 app.delete('/api/cache/:key', (req, res) => {
   cache.del(decodeURIComponent(req.params.key));
   res.json({ ok: true });
@@ -300,6 +303,7 @@ app.delete('/api/cache/:key', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[proxy] listening on http://localhost:${PORT}`);
-  console.log(`[proxy] cookies.txt: ${fs.existsSync(path.join(__dirname, 'cookies.txt')) ? 'found' : 'NOT found — pricehistory will fail'}`);
+  console.log(`[proxy] cookies.txt: ${fs.existsSync(path.join(__dirname, 'cookies.txt')) ? 'found' : 'NOT found'}`);
   console.log(`[proxy] persisted state: ${persistedState.watchlist.length} watchlist items, ${Object.keys(persistedState.items).length} cached items`);
+  console.log(`[proxy] history file cache: ${Object.keys(historyFileCache).length} entries`);
 });
