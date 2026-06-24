@@ -5,7 +5,7 @@ import styles from './ChartDrawer.module.css';
 
 const PERIODS = ['1D', '1W', '1M'];
 
-export function ChartDrawer({ item, onClose, onForceUpdate }) {
+export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit }) {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const seriesRef = useRef(null);
@@ -50,8 +50,10 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     return () => { cancelled = true; };
   }, [market_hash_name]);
 
-  // Load order book
+  // Load order book (item_nameid unknown without extra request — use placeholder)
   useEffect(() => {
+    // item_nameid requires fetching the market listing page first.
+    // For now we show a placeholder; set item.item_nameid in watchlist.js once known.
     if (!item.item_nameid) { setOrderBook(null); return; }
     let cancelled = false;
     setLoadingBook(true);
@@ -62,7 +64,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
     return () => { cancelled = true; };
   }, [item.item_nameid]);
 
-  // Initialize chart (autoSize fills container automatically)
+  // Initialize chart
   useEffect(() => {
     if (!chartRef.current) return;
     const chart = createChart(chartRef.current, {
@@ -102,6 +104,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
 
   const handleForceUpdate = useCallback(() => {
     onForceUpdate();
+    // Also reload chart data
     setLoadingHistory(true);
     fetchPriceHistory(market_hash_name)
       .then(data => { setHistory(parseHistoryToSeries(data.prices)); })
@@ -161,7 +164,15 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
         {historyError && !loadingHistory && (
           <div className={styles.overlay} style={{ color: 'var(--red)' }}>
             エラー: {historyError}<br />
-            <small>cookies.txt にSteam Cookieを設定してください</small>
+            <small style={{ color: '#666' }}>Steam Cookieが必要です</small>
+            {onCookieEdit && (
+              <button
+                onClick={onCookieEdit}
+                style={{ marginTop: 10, background: 'none', border: '1px solid #555', color: '#aaa', padding: '4px 12px', fontSize: 11, borderRadius: 2, cursor: 'pointer' }}
+              >
+                🍪 Cookie更新
+              </button>
+            )}
           </div>
         )}
         <div ref={chartRef} className={styles.chart} />
@@ -187,7 +198,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
           <div className={styles.bookLoading}>板情報なし</div>
         ) : (
           <div className={styles.bookLoading}>
-            item_nameid 取得中...
+            item_nameid 未設定 — watchlist.js に追加してください
           </div>
         )}
       </div>
@@ -198,6 +209,8 @@ export function ChartDrawer({ item, onClose, onForceUpdate }) {
 function OrderBookRows({ data }) {
   const sells = (data.sell_order_graph || []).slice(0, 5).reverse();
   const buys = (data.buy_order_graph || []).slice(0, 5);
+  const spread = data.sell_order_summary && data.buy_order_summary
+    ? null : null; // parsed from HTML string — skip for now
 
   const maxQty = Math.max(
     ...sells.map(r => r[1] || 0),

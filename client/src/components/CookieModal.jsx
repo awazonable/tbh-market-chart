@@ -44,7 +44,7 @@ export function CookieModal({ onClose }) {
         </div>
 
         <p className={styles.hint}>
-          Steam Communityをブラウザで開き、開発者ツール → Application → Cookies →
+          Steamのブラウザを開き、開発者ツール → Application → Cookies →
           <code>steamcommunity.com</code> から全Cookieをコピーして貼り付けてください。<br />
           <small>必要なキー: <code>steamLoginSecure</code>, <code>sessionid</code></small>
         </p>

@@ -75,32 +75,6 @@ app.put('/api/state/items/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Cookie management
-// ---------------------------------------------------------------------------
-
-// GET /api/cookies/status — check if cookies.txt exists and has content
-app.get('/api/cookies/status', (_req, res) => {
-  const cookiePath = path.join(__dirname, 'cookies.txt');
-  const exists = fs.existsSync(cookiePath);
-  const size = exists ? fs.statSync(cookiePath).size : 0;
-  res.json({ exists, hasContent: size > 10 });
-});
-
-// POST /api/cookies — write cookies.txt
-app.post('/api/cookies', (req, res) => {
-  const { cookie } = req.body;
-  if (!cookie || typeof cookie !== 'string' || !cookie.trim()) {
-    return res.status(400).json({ error: 'cookie string required' });
-  }
-  try {
-    fs.writeFileSync(path.join(__dirname, 'cookies.txt'), cookie.trim(), 'utf8');
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
 // Steam proxy helpers
 // ---------------------------------------------------------------------------
 
@@ -286,6 +260,28 @@ app.get('/api/orderbook', async (req, res) => {
     res.json(data);
   } catch (e) {
     res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/cookies/status — check if cookies.txt exists and has content
+app.get('/api/cookies/status', (_req, res) => {
+  const cookiePath = path.join(__dirname, 'cookies.txt');
+  const exists = fs.existsSync(cookiePath);
+  const size = exists ? fs.statSync(cookiePath).size : 0;
+  res.json({ exists, hasContent: size > 10 });
+});
+
+// POST /api/cookies — write cookies.txt
+app.post('/api/cookies', (req, res) => {
+  const { cookie } = req.body;
+  if (!cookie || typeof cookie !== 'string' || !cookie.trim()) {
+    return res.status(400).json({ error: 'cookie string required' });
+  }
+  try {
+    fs.writeFileSync(path.join(__dirname, 'cookies.txt'), cookie.trim(), 'utf8');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
