@@ -6,11 +6,11 @@ const CURRENCY_OPTIONS = {
 };
 
 export function getCurrencyCode() {
-  return parseInt(localStorage.getItem('tbh_currency') ?? '8', 10);
+  return parseInt(localStorage.getItem('steam_market_currency') ?? '8', 10);
 }
 
 export function setCurrencyCode(code) {
-  localStorage.setItem('tbh_currency', String(code));
+  localStorage.setItem('steam_market_currency', String(code));
 }
 
 export function getCurrencyInfo() {

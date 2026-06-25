@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { WATCHLIST } from '../watchlist.js';
 
-const KEY = 'tbh_watchlist';
+const KEY = 'steam_market_watchlist';
 const BASE = '/api';
 
 export function parseMarketUrl(url) {
@@ -9,7 +9,7 @@ export function parseMarketUrl(url) {
   if (!m) return null;
   const name = decodeURIComponent(m[1]);
   const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-  return { id, market_hash_name: name, category: 'material' };
+  return { id, market_hash_name: name };
 }
 
 function syncWatchlistToServer(list) {

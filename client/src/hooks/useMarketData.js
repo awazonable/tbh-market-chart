@@ -9,8 +9,9 @@ function calcDelay(total) {
 }
 
 function makeItem(w) {
+  const { id, market_hash_name } = w;
   return {
-    ...w,
+    id, market_hash_name,
     status: 'pending',
     price: null, prevPrice: null,
     median: null, sales: null, prevSales: null,

@@ -130,8 +130,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrde
           <div>
             <div className={styles.itemName}>{market_hash_name}</div>
             <div className={styles.itemMeta}>
-              {item.category === 'material' ? '素材' : '装備'}
-              {sales != null && <> · sales {sales.toLocaleString()}{salesDiff != null ? ` (+${salesDiff} vs cache)` : ''}</>}
+              {sales != null && <>sales {sales.toLocaleString()}{salesDiff != null ? ` (+${salesDiff} vs cache)` : ''}</>}
             </div>
           </div>
         </div>

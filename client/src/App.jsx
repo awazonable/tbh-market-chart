@@ -10,7 +10,6 @@ import styles from './App.module.css';
 export default function App() {
   const { list: watchlist, addItem, removeItem } = useWatchlist();
   const { items, nextUpdateIn, forceUpdate, rotationEnabled, toggleRotation, applyOrderData } = useMarketData(watchlist);
-  const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('default');
   const [selectedId, setSelectedId] = useState(null);
@@ -24,10 +23,6 @@ export default function App() {
 
   const visibleItems = useMemo(() => {
     let list = items;
-
-    if (filter !== 'all') {
-      list = list.filter(it => it.category === filter);
-    }
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -52,7 +47,7 @@ export default function App() {
     });
 
     return list;
-  }, [items, filter, search, sortBy]);
+  }, [items, search, sortBy]);
 
   const drawerOpen = selectedItem != null;
 
@@ -75,8 +70,6 @@ export default function App() {
     <div className={styles.app}>
       <FilterBar
         items={items}
-        filter={filter}
-        setFilter={setFilter}
         search={search}
         setSearch={setSearch}
         sortBy={sortBy}

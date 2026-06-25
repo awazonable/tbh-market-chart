@@ -18,28 +18,6 @@
   letter-spacing: 0.03em;
 }
 
-.chips {
-  display: flex;
-  gap: 4px;
-}
-
-.chip {
-  background: transparent;
-  border: 1px solid #444;
-  color: #999;
-  padding: 2px 10px;
-  font-size: 11px;
-  border-radius: 2px;
-  transition: all 0.1s;
-}
-
-.chip:hover { border-color: #666; color: #ccc; }
-
-.chip.active {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-}
 
 .periodChips {
   display: flex;

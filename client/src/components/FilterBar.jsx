@@ -1,34 +1,14 @@
 import React from 'react';
 import styles from './FilterBar.module.css';
 
-export function FilterBar({ items, filter, setFilter, search, setSearch, sortBy, setSortBy, nextUpdateIn, rotationEnabled, onToggleRotation, sparklinePeriod, setSparklinePeriod }) {
-  const total = items.length;
-  const materials = items.filter(i => i.category === 'material').length;
-  const equipment = items.filter(i => i.category === 'equipment').length;
-
+export function FilterBar({ items, search, setSearch, sortBy, setSortBy, nextUpdateIn, rotationEnabled, onToggleRotation, sparklinePeriod, setSparklinePeriod }) {
   const sec = Math.ceil(nextUpdateIn / 1000);
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
 
   return (
     <div className={styles.bar}>
-      <span className={styles.logo}>TBH Market</span>
-
-      <div className={styles.chips}>
-        {[
-          { key: 'all', label: `全部 ${total}` },
-          { key: 'material', label: `素材 ${materials}` },
-          { key: 'equipment', label: `装備 ${equipment}` },
-        ].map(({ key, label }) => (
-          <button
-            key={key}
-            className={`${styles.chip} ${filter === key ? styles.active : ''}`}
-            onClick={() => setFilter(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <span className={styles.logo}>Steam Market</span>
 
       <div className={styles.periodChips}>
         {['1D', '1W', '1M'].map(p => (
