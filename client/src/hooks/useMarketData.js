@@ -8,6 +8,8 @@ function calcDelay(total) {
   return Math.floor(ROTATION_INTERVAL / Math.max(total, 1));
 }
 
+const HISTORY_TTL = 30 * 60 * 1000; // refresh history if older than 30 min
+
 function makeItem(w) {
   const { id, market_hash_name } = w;
   return {
@@ -17,7 +19,7 @@ function makeItem(w) {
     median: null, sales: null, prevSales: null,
     updatedAt: null,
     imageUrl: null,
-    history: null, recentPrice: null,
+    history: null, historyFetchedAt: null,
     highestBid: null,
   };
 }
@@ -97,15 +99,16 @@ export function useMarketData(watchlist) {
       }));
       saveItemToServer(id, { price, median: newMedian, sales, updatedAt });
 
-      // Lazy-fetch price history if not yet loaded
+      // Refresh price history if never loaded or older than 30 min
       setItems(prev => {
         const current = prev.find(i => i.id === id);
-        if (!current?.history) {
+        const stale = !current?.historyFetchedAt || (Date.now() - current.historyFetchedAt > HISTORY_TTL);
+        if (stale) {
+          const fetchedAt = Date.now();
           fetchPriceHistory(w.market_hash_name).then(d => {
             const series = parseHistoryToSeries(d.prices);
-            const recentPrice = series.length ? series[series.length - 1].value : null;
-            setItems(p => p.map(i => i.id === id ? { ...i, history: series, recentPrice } : i));
-            if (recentPrice != null) saveItemToServer(id, { recentPrice });
+            if (!series.length) return; // empty (rate-limited) — keep existing history
+            setItems(p => p.map(i => i.id === id ? { ...i, history: series, historyFetchedAt: fetchedAt } : i));
           }).catch(() => {});
         }
         return prev;

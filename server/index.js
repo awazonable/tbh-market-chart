@@ -8,7 +8,8 @@ const path = require('path');
 const app = express();
 const PORT = 3001;
 const APPID = 3678970;
-const CACHE_TTL = 600; // 10 min
+const CACHE_TTL = 600;        // 10 min — default
+const ORDER_CACHE_TTL = 120;  // 2 min — order book changes quickly
 
 const cache = new NodeCache({ stdTTL: CACHE_TTL });
 const requestQueue = [];
@@ -260,7 +261,7 @@ app.get('/api/order-data', async (req, res) => {
       sellOrders: sellMatch ? parseCompact(sellMatch[1]) : [],
       icon_url: iconMatch ? iconMatch[1] + '/64fx64f' : null,
     };
-    cache.set(cacheKey, data);
+    cache.set(cacheKey, data, ORDER_CACHE_TTL);
     res.json(data);
   } catch (e) {
     res.status(502).json({ error: e.message });

@@ -13,13 +13,12 @@ function filterByPeriod(history, period) {
 }
 
 export function ItemCard({ item, selected, onClick, onRemove, period = '1W' }) {
-  const { market_hash_name, price, median, sales, status, imageUrl, highestBid, recentPrice, history } = item;
+  const { market_hash_name, price, median, sales, status, imageUrl, highestBid, history } = item;
 
-  // Primary display: average of highest buy order and most recent transaction
+  // Primary: median (24h, fresh from priceoverview on every rotation — no cookies needed).
+  // When highestBid is also known, average them to reflect both sides of the market.
   const computedPrice = (() => {
-    if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
-    if (recentPrice != null) return recentPrice;
-    if (highestBid != null) return highestBid;
+    if (highestBid != null && median != null) return (highestBid + median) / 2;
     return median ?? price;
   })();
 

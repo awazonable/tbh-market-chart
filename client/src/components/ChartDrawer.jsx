@@ -11,19 +11,19 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrde
   const seriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
   const [period, setPeriod] = useState('1W');
-  // history = { price: [{time,value}], volume: [{time,value,color}] } | null
+  // history = { price: [{time,value}], volume: [{time,value,color}], fileCached: bool } | null
   const [history, setHistory] = useState(null);
   const [orderBook, setOrderBook] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingBook, setLoadingBook] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
-  const { market_hash_name, price, prevPrice, median, sales, prevSales, imageUrl, highestBid, recentPrice } = item;
+  const { market_hash_name, price, prevPrice, median, sales, prevSales, imageUrl, highestBid } = item;
 
+  // median = 24h median from priceoverview, refreshed every rotation (no cookies needed).
+  // highestBid = top buy order from order-data, loaded when drawer opens.
   const displayPrice = (() => {
-    if (highestBid != null && recentPrice != null) return (highestBid + recentPrice) / 2;
-    if (recentPrice != null) return recentPrice;
-    if (highestBid != null) return highestBid;
+    if (highestBid != null && median != null) return (highestBid + median) / 2;
     return median ?? price;
   })();
   const change = displayPrice != null && prevPrice != null ? displayPrice - prevPrice : null;
@@ -40,7 +40,9 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrde
     fetchPriceHistory(market_hash_name)
       .then(data => {
         if (cancelled) return;
-        setHistory(parseHistoryFull(data.prices));
+        const parsed = parseHistoryFull(data.prices);
+        parsed.fileCached = !!data._fileCached;
+        setHistory(parsed);
       })
       .catch(e => {
         if (cancelled) return;
@@ -147,7 +149,7 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrde
             {change >= 0 ? '+' : ''}{formatPrice(change)} ({changePct >= 0 ? '+' : ''}{changePct?.toFixed(1)}%)
           </span>
         )}
-        <span className={styles.priceLabel}>{highestBid != null && recentPrice != null ? '買注文↑直近平均' : '中央値24h'}</span>
+        <span className={styles.priceLabel}>{highestBid != null && median != null ? '買注文↑中央値平均' : '中央値24h'}</span>
       </div>
 
       {/* Period tabs */}
@@ -166,6 +168,11 @@ export function ChartDrawer({ item, onClose, onForceUpdate, onCookieEdit, onOrde
 
       {/* Chart */}
       <div className={styles.chartWrap}>
+        {history?.fileCached && !loadingHistory && (
+          <div style={{ position: 'absolute', top: 4, right: 8, fontSize: 9, color: '#666', zIndex: 2, pointerEvents: 'none' }}>
+            ⚠ キャッシュ（Cookie設定でリアルタイムに）
+          </div>
+        )}
         {loadingHistory && <div className={styles.overlay}>読み込み中...</div>}
         {historyError && !loadingHistory && (
           <div className={styles.overlay} style={{ color: 'var(--red)' }}>
